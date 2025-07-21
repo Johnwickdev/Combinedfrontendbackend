@@ -1,8 +1,7 @@
 services:
   - type: web
     name: backendforautobot
-    runtime: java
-    env: java
+    env: docker
     plan: free
     buildCommand: "./mvnw clean package -DskipTests"
     startCommand: "java -jar target/backend-0.0.1-SNAPSHOT.jar"
