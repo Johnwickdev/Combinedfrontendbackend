@@ -163,24 +163,24 @@ public class AuthController {
         return Map.of("url", auth.buildAuthUrl());
     }
 
-    // ✅ NEW: This handles Upstox redirect after login (and redirects user to frontend login)
     @RequestMapping(value = "", method = RequestMethod.GET)
-    public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
-                                           ServerHttpResponse response) {
-        String code = qs.get("code");
+public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
+                                       ServerHttpResponse response) {
+    String code = qs.get("code");
 
-        if (code != null && !code.isBlank()) {
-            return auth.exchangeCode(code)
-                    .then(Mono.defer(() -> {
-                        response.setStatusCode(HttpStatus.FOUND);
-                        response.getHeaders().setLocation(URI.create("https://frontendfortheautobot.vercel.app/login"));
-                        return Mono.empty();
-                    }));
-        } else {
-            response.setStatusCode(HttpStatus.BAD_REQUEST);
-            return Mono.empty();
-        }
+    if (code != null && !code.isBlank()) {
+        return auth.exchangeCode(code) // Step 1: Exchange code
+                .then(auth.initLiveWebSocket()) // ✅ Step 2: Init WebSocket feed right here (you implement this method)
+                .then(Mono.defer(() -> {
+                    response.setStatusCode(HttpStatus.FOUND);
+                    response.getHeaders().setLocation(URI.create("https://frontendfortheautobot.vercel.app/login"));
+                    return Mono.empty();
+                }));
+    } else {
+        response.setStatusCode(HttpStatus.BAD_REQUEST);
+        return Mono.empty();
     }
+}
 
     @PostMapping("/exchange")
     public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
