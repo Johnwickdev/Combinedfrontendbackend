@@ -169,13 +169,17 @@ public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
     String code = qs.get("code");
 
     if (code != null && !code.isBlank()) {
-        return auth.exchangeCode(code) // Step 1: Exchange code
-                .then(auth.initLiveWebSocket()) // ✅ Step 2: Init WebSocket feed right here (you implement this method)
-                .then(Mono.defer(() -> {
-                    response.setStatusCode(HttpStatus.FOUND);
-                    response.getHeaders().setLocation(URI.create("https://frontendfortheautobot.vercel.app/login"));
-                    return Mono.empty();
-                }));
+    return auth.exchangeCode(code)  // Step 1: Exchange code
+            .then(Mono.fromRunnable(() -> auth.initLiveWebSocket()))  // ✅ Step 2: Run WebSocket after code
+            .then(Mono.defer(() -> {
+                response.setStatusCode(HttpStatus.FOUND);
+                response.getHeaders().setLocation(URI.create("https://frontendfortesting.vercel.app/dashboard"));
+                return Mono.empty();
+            }));
+} else {
+    response.setStatusCode(HttpStatus.BAD_REQUEST);
+    return Mono.empty();
+}
     } else {
         response.setStatusCode(HttpStatus.BAD_REQUEST);
         return Mono.empty();
