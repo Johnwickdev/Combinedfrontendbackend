@@ -23,6 +23,12 @@ import java.time.ZonedDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @Slf4j
@@ -32,8 +38,8 @@ public class UpstoxAuthService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;
     private final LiveFeedService liveFeedService;
-    private long tokenCreatedAt;
-    private long expiresIn = 1800000; // 30 minutes in milliseconds
+    private Long tokenCreatedAt;
+    private Long expiresIn;
 
     public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeedService) {
         this.apiClient = apiClient;
