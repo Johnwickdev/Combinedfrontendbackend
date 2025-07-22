@@ -393,5 +393,29 @@ public class LiveFeedService {
                 .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
                 .subscribe();
     }
+public void streamSingleInstrument(String instrumentKey) {
+    log.info("🚀 Starting live stream for instrument → {}", instrumentKey);
+
+    // Step 1: Create a sub frame
+    ObjectNode frame = om.createObjectNode();
+    frame.put("guid", "single-instrument-guid");
+    frame.put("method", "sub");
+
+    ObjectNode data = frame.putObject("data");
+    data.put("mode", "full");
+    data.putArray("instrumentKeys").add(instrumentKey);
+
+    byte[] subFrame = frame.toString().getBytes(StandardCharsets.UTF_8);
+
+    // Step 2: Connect and stream
+    fetchWebSocketUrl()
+            .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, subFrame))
+            .doOnNext(tick -> {
+                log.info("📡 [AXIS] Tick → {}", tick.toPrettyString());
+                sink.tryEmitNext(tick);
+            })
+            .doOnError(err -> log.error("❌ [AXIS] WebSocket stream failed:", err))
+            .subscribe();
+}
 
 }
