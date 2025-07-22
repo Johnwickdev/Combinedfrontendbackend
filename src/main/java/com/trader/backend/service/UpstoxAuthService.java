@@ -34,9 +34,13 @@ public class UpstoxAuthService {
     private final WebClient webClient = WebClient.create("https://api.upstox.com/v2");
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;          // injected via constructor
+    private final LiveFeedService liveFeedService;
 
-    public UpstoxAuthService(ApiClient apiClient) {
+
+    public UpstoxAuthService(ApiClient apiClient, LiveFeedService liveFeedService) {
         this.apiClient = apiClient;
+        this.liveFeedService = liveFeedService;
+}
     }
 
     /* ------------------------------------------------------------
