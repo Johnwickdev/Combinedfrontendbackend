@@ -248,23 +248,23 @@ public class UpstoxAuthService {
         return exchangeCode(code);
     }
 public ResponseEntity<Map<String, Object>> getTokenStatus() {
-    Map<String, Object> response = new HashMap<>();
-    
-    if (accessToken == null || tokenCreatedAt == null || expiresIn == null) {
-        response.put("status", "NOT_CONNECTED");
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    Map<String, Object> status = new HashMap<>();
+
+    if (tokenCreatedAt == null || expiresIn == null) {
+        status.put("status", "NOT_CONNECTED");
+        return ResponseEntity.ok(status);
     }
 
+    Instant created = Instant.ofEpochMilli(tokenCreatedAt);
     Instant now = Instant.now();
-    long elapsedSeconds = Duration.between(tokenCreatedAt, now).getSeconds();
-    long remainingSeconds = expiresIn - elapsedSeconds;
+    long remaining = expiresIn - Duration.between(created, now).getSeconds();
 
-    response.put("status", "CONNECTED");
-    response.put("token", accessToken);
-    response.put("expires_in", remainingSeconds > 0 ? remainingSeconds : 0);
-    response.put("expiry_timestamp", tokenCreatedAt.plusSeconds(expiresIn).toString());
+    status.put("status", "CONNECTED");
+    status.put("createdAt", tokenCreatedAt);
+    status.put("expiresIn", expiresIn);
+    status.put("remainingSeconds", remaining);
 
-    return ResponseEntity.ok(response);
+    return ResponseEntity.ok(status);
 }
 
 }
