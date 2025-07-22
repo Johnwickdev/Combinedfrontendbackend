@@ -341,4 +341,14 @@ public class UpstoxAuthService {
     public String getCurrentToken() {
         return currentToken.get();
     }
+public void initLiveWebSocket() {
+    log.info("⚡ initLiveWebSocket() called after successful login");
+
+    // Call the single-instrument stream (AXIS BANK)
+    try {
+        liveFeedService.streamSingleInstrument("NSE_EQ|INE238A01034");
+    } catch (Exception e) {
+        log.error("🔥 Failed to start WebSocket stream", e);
+    }
+}
 }
