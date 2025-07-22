@@ -30,17 +30,21 @@ public class AuthController {
 public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
                                        ServerHttpResponse response) {
     String code = qs.get("code");
+    System.out.println("🔵 Received code: " + code);
 
     if (code != null && !code.isBlank()) {
         return auth.exchangeCode(code)
                 .doOnSuccess(unused -> {
+                    System.out.println("🟢 Exchange successful, now calling initLiveWebSocket()");
                     try {
-                        auth.initLiveWebSocket(); // ✅ Call safely
+                        auth.initLiveWebSocket();
                     } catch (Exception e) {
-                        System.out.println("WebSocket init failed: " + e.getMessage());
+                        System.out.println("🔴 WebSocket crash: " + e.getMessage());
+                        e.printStackTrace();
                     }
                 })
                 .then(Mono.fromRunnable(() -> {
+                    System.out.println("🟡 Redirecting to dashboard...");
                     response.setStatusCode(HttpStatus.FOUND);
                     response.getHeaders().setLocation(URI.create("https://frontendfortesting.vercel.app/dashboard"));
                 }))
@@ -50,7 +54,6 @@ public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
         return Mono.empty();
     }
 }
-
     @PostMapping("/exchange")
     public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
         return auth.exchangeCode(code)
