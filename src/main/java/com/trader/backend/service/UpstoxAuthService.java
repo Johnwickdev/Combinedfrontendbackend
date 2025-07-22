@@ -31,6 +31,8 @@ public class UpstoxAuthService {
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;
     private final LiveFeedService liveFeedService;
+    private long tokenCreatedAt;
+    private long expiresIn = 1800000; // 30 minutes in milliseconds
 
     public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeedService) {
         this.apiClient = apiClient;
