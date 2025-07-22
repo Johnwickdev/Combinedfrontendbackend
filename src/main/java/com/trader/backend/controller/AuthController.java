@@ -46,7 +46,7 @@ public void handleUpstoxRedirect(@RequestParam Map<String, String> qs,
             .subscribe(); // fire and forget
 
         try {
-            response.sendRedirect("https://frontendfortesting.vercel.app/dashboard");
+            response.sendRedirect("https://frontendfortheautobot.vercel.app/dashboard");
         } catch (Exception e) {
             e.printStackTrace();
         }
