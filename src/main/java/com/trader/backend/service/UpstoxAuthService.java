@@ -244,4 +244,10 @@ public class UpstoxAuthService {
 
         return exchangeCode(code);
     }
+public Map<String, Object> getTokenStatus() {
+    Map<String, Object> map = new HashMap<>();
+    map.put("createdAt", this.tokenCreatedAt); // already present
+    map.put("expiresIn", this.expiresIn); // already present
+    return map;
+}
 }
