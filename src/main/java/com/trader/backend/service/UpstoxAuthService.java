@@ -13,7 +13,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
-
+import org.springframework.context.annotation.Lazy;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -32,7 +32,7 @@ public class UpstoxAuthService {
     private final ApiClient apiClient;
     private final LiveFeedService liveFeedService;
 
-    public UpstoxAuthService(ApiClient apiClient, LiveFeedService liveFeedService) {
+    public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeedService) {
         this.apiClient = apiClient;
         this.liveFeedService = liveFeedService;
     }
