@@ -25,25 +25,25 @@ public class AuthController {
     public Map<String, String> loginUrl() {
         return Map.of("url", auth.buildAuthUrl());
     }
+@RequestMapping(value = "", method = RequestMethod.GET)
+public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
+                                       ServerHttpResponse response) {
+    String code = qs.get("code");
 
-    @RequestMapping(value = "", method = RequestMethod.GET)
-    public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
-                                           ServerHttpResponse response) {
-        String code = qs.get("code");
-
-        if (code != null && !code.isBlank()) {
-            return auth.exchangeCode(code)  // Step 1: Exchange code
-                    .then(Mono.fromRunnable(() -> auth.initLiveWebSocket()))  // ✅ Step 2: Init WebSocket
-                    .then(Mono.defer(() -> {
-                        response.setStatusCode(HttpStatus.FOUND);
-                        response.getHeaders().setLocation(URI.create("https://frontendfortesting.vercel.app/dashboard"));
-                        return Mono.empty();
-                    }));
-        } else {
-            response.setStatusCode(HttpStatus.BAD_REQUEST);
-            return Mono.empty();
-        }
+    if (code != null && !code.isBlank()) {
+        return auth.exchangeCode(code) // Step 1: Exchange code
+                .then(Mono.fromRunnable(() -> auth.initLiveWebSocket())) // Step 2: Init feed
+                .then(Mono.fromRunnable(() -> {
+                    response.setStatusCode(HttpStatus.FOUND);
+                    response.getHeaders().setLocation(URI.create("https://frontendfortesting.vercel.app/dashboard"));
+                }))
+                .then(); // This is KEY to return Mono<Void>
+    } else {
+        response.setStatusCode(HttpStatus.BAD_REQUEST);
+        return Mono.empty();
     }
+}
+   
 
     @PostMapping("/exchange")
     public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
