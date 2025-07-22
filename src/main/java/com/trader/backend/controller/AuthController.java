@@ -86,9 +86,10 @@ public void handleUpstoxRedirect(@RequestParam Map<String, String> qs,
         }
         return Mono.empty();
     }
+
 @GetMapping("/auth/token-status")
 public ResponseEntity<Map<String, Object>> getTokenStatus() {
-    return ResponseEntity.ok(auth.getTokenStatus());
+    return auth.getTokenStatus();
 }
 
     public record WebhookPayload(
