@@ -185,7 +185,7 @@ public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
 @PostMapping("/exchange")
 public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
     return auth.exchangeCode(code)
-            .then(Mono.fromRunnable(() -> auth.initLiveWebSocket()))
+            .doOnSuccess(v -> auth.initLiveWebSocket()) // ✅ This avoids using 'void' inside then()
             .thenReturn(ResponseEntity.ok().build())
             .onErrorResume(e -> Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()));
 }
