@@ -181,13 +181,13 @@ public Mono<Void> handleUpstoxRedirect(@RequestParam Map<String, String> qs,
         return Mono.empty();
     }
 }
+@PostMapping("/exchange")
+public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
+    return auth.exchangeCode(code)
+            .then(Mono.just(ResponseEntity.ok().build()))
+            .onErrorResume(e -> Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()));
+}
 
-    @PostMapping("/exchange")
-    public Mono<ResponseEntity<Object>> exchangeCode(@RequestParam("code") String code) {
-        return auth.exchangeCode(code)
-                .then(Mono.just(ResponseEntity.ok().build()))
-                .onErrorResume(e -> Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build()));
-    }
 
     @GetMapping("/status")
     public Mono<Map<String, Object>> status() {
