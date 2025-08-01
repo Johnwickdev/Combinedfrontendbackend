@@ -54,5 +54,9 @@ public class NseInstrumentController {
         liveFeedService.streamFilteredNiftyOptions();
         return ResponseEntity.ok("📡 Started live stream for filtered CE/PE instruments.");
     }
-
+@PostMapping("/nifty-fut-stream")
+public ResponseEntity<String> startNiftyFutStream() {
+    liveFeedService.streamNiftyFutAndTriggerFiltering();
+    return ResponseEntity.ok("📡 NIFTY FUT stream started");
+}
 }
