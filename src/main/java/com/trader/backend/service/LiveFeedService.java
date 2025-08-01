@@ -418,4 +418,65 @@ public void streamSingleInstrument(String instrumentKey) {
             .subscribe();
 }
 
+public void streamNiftyFutAndTriggerFiltering() {
+    log.info("🚀 Auto-detecting NIFTY FUT from NSE.json and streaming for LTP...");
+
+    try {
+        File file = new File("src/main/resources/data/NSE.json");
+        NseInstrument[] instruments = om.readValue(file, NseInstrument[].class);
+
+        // Step 1: Find all FUT instruments with correct lot size and expiry
+        List<NseInstrument> niftyFutures = Arrays.stream(instruments)
+                .filter(i -> "FUT".equals(i.getInstrumentType()))
+                .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> i.getUnderlying_key().equals("NSE_INDEX|Nifty 50"))
+                .filter(i -> i.getMinimumLot() == 75.0) // ensure it's not BANKNIFTY
+                .sorted(Comparator.comparing(NseInstrument::getExpiry))
+                .toList();
+
+        if (niftyFutures.isEmpty()) {
+            log.warn("❌ No valid NIFTY FUT found in NSE.json");
+            return;
+        }
+
+        NseInstrument nearestFut = niftyFutures.get(0);
+        String instrumentKey = nearestFut.getInstrument_key();
+        log.info("📄 Nearest NIFTY FUT: {} | key={}", nearestFut.getTrading_symbol(), instrumentKey);
+
+        // Step 2: Stream live and extract LTP from tick
+        fetchWebSocketUrl()
+                .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
+                .doOnNext(tick -> {
+                    try {
+                        JsonNode ltp = tick.path("feeds").path(instrumentKey).path("ltpc").path("ltp");
+                        if (ltp.isNumber()) {
+                            double liveLtp = ltp.asDouble();
+                            log.info("📈 [NIFTY FUT] Live LTP: {}", liveLtp);
+                            // Optionally: Trigger CE/PE filtering using this LTP
+                        }
+                    } catch (Exception ex) {
+                        log.error("⚠️ Error parsing tick", ex);
+                    }
+                })
+                .subscribe();
+
+    } catch (Exception e) {
+        log.error("❌ Failed to parse NSE.json for NIFTY FUT", e);
+    }
+}
+
+private byte[] buildSubFrame(String instrumentKey) {
+    ObjectNode frame = om.createObjectNode();
+    frame.put("guid", "nifty-fut-guid");
+    frame.put("method", "sub");
+
+    ObjectNode data = frame.putObject("data");
+    data.put("mode", "full");
+    data.putArray("instrumentKeys").add(instrumentKey);
+
+    return frame.toString().getBytes(StandardCharsets.UTF_8);
+}
+
+
 }
