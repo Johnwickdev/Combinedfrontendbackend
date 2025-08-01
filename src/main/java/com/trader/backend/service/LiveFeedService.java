@@ -433,7 +433,7 @@ public void streamNiftyFutAndTriggerFiltering() {
                 .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> i.getUnderlying_key().equals("NSE_INDEX|Nifty 50"))
-                .filter(i -> i.getMinimumLot() == 75.0) // ensure it's not BANKNIFTY
+                .filter(i -> i.getLot_size() == 75)
                 .sorted(Comparator.comparing(NseInstrument::getExpiry))
                 .toList();
 
