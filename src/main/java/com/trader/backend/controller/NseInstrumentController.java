@@ -65,4 +65,14 @@ public Mono<ResponseEntity<String>> saveNiftyFutures() {
     nseInstrumentService.saveNiftyFuturesToMongo();
     return Mono.just(ResponseEntity.ok("✅ NIFTY FUTURES saved to MongoDB"));
 }
+@GetMapping("/api/nse/nifty-future-ltp")
+public Mono<ResponseEntity<Double>> getNiftyFutureLtp() {
+    return nseInstrumentService.getNearestExpiryNiftyFutureLtp()
+            .map(ResponseEntity::ok)
+            .onErrorResume(e -> {
+                log.error("❌ Failed to fetch NIFTY FUT LTP", e);
+                return Mono.just(ResponseEntity.status(500).build());
+            });
+}
+
 }
