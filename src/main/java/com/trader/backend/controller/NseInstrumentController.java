@@ -59,4 +59,10 @@ public ResponseEntity<String> startNiftyFutStream() {
     liveFeedService.streamNiftyFutAndTriggerFiltering();
     return ResponseEntity.ok("📡 NIFTY FUT stream started");
 }
+@PostMapping("/save-nifty-futures")
+public Mono<ResponseEntity<String>> saveNiftyFutures() {
+    log.info("🚀 Triggered /api/nse/save-nifty-futures");
+    nseInstrumentService.saveNiftyFuturesToMongo();
+    return Mono.just(ResponseEntity.ok("✅ NIFTY FUTURES saved to MongoDB"));
+}
 }
