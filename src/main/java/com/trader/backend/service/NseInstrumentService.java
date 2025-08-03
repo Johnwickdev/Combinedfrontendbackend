@@ -1,5 +1,22 @@
 package com.trader.backend.service;
 
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.HttpHeaders;
+import reactor.core.publisher.Mono;
+
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import com.trader.backend.entity.NseInstrument;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Criteria;
+
 import com.fasterxml.jackson.core.exc.StreamReadException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DatabindException;
@@ -251,5 +268,62 @@ public void saveNiftyFuturesToMongo() {
     } catch (IOException e) {
         log.error("❌ Failed to parse or save NIFTY FUT records", e);
     }
+}
+public Mono<Double> getNearestExpiryNiftyFutureLtp() {
+    // 1. Fetch all saved NIFTY FUT contracts
+    Query query = new Query();
+    query.addCriteria(Criteria.where("segment").is("NSE_FO")
+            .and("instrument_type").is("FUT")
+            .and("lot_size").is(75));  // Ensure it's real NIFTY, not BANKNIFTY or others
+
+    List<NseInstrument> niftyFuts = mongoTemplate.find(query, NseInstrument.class, "nifty_futures");
+
+    if (niftyFuts.isEmpty()) {
+        log.error("❌ No NIFTY FUT found in DB.");
+        return Mono.error(new RuntimeException("No NIFTY FUT data in DB"));
+    }
+
+    // 2. Filter contracts whose expiry is after now
+    long now = Instant.now().toEpochMilli();
+    Optional<NseInstrument> nearestExpiry = niftyFuts.stream()
+        .filter(f -> f.getExpiry() > now)
+        .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+        .findFirst();
+
+    if (nearestExpiry.isEmpty()) {
+        log.error("❌ No valid NIFTY FUT contract with future expiry.");
+        return Mono.error(new RuntimeException("No future expiry NIFTY FUT found"));
+    }
+
+    String instrumentKey = nearestExpiry.get().getInstrument_key();
+    log.info("📌 Selected NIFTY FUT key for LTP: " + instrumentKey);
+
+    // 3. Call Upstox LTP API
+    String url = "https://api.upstox.com/v2/market-quote/ltp?instrument_key=" + instrumentKey;
+
+    return webClient.get()
+            .uri(url)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+            .header(HttpHeaders.ACCEPT, "application/json")
+            .retrieve()
+            .bodyToMono(String.class)
+            .flatMap(response -> {
+                // Parse LTP value from JSON (simplified)
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    JsonNode root = mapper.readTree(response);
+                    JsonNode ltpNode = root.path("data").path(instrumentKey).path("ltp");
+
+                    if (!ltpNode.isMissingNode()) {
+                        double ltp = ltpNode.asDouble();
+                        log.info("📈 NIFTY FUT LTP: " + ltp);
+                        return Mono.just(ltp);
+                    } else {
+                        return Mono.error(new RuntimeException("LTP not found in response"));
+                    }
+                } catch (Exception e) {
+                    return Mono.error(e);
+                }
+            });
 }
 }
