@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import javax.annotation.PostConstruct;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages ="com.trader.backend")
 @EnableScheduling
 public class BackendApplication {
 
