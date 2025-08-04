@@ -11,20 +11,4 @@ import java.util.List;
 @Configuration
 public class WebConfig {
 
-    @Bean
-    public CorsWebFilter corsFilter() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(
-                "https://frontendfortheautobot.vercel.app",
-                "http://localhost:4200"
-        ));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true); // optional
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
-
-        return new CorsWebFilter(source);
-    }
 }
