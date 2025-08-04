@@ -1,13 +1,14 @@
 package com.trader.backend.config;
 
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
 import java.util.List;
-
+@ComponentScan
 @Configuration
 public class CorsConfig {
 
@@ -17,7 +18,7 @@ public class CorsConfig {
         config.setAllowCredentials(true);
 
         // ✅ Set your frontend domain here
-        config.setAllowedOrigins(List.of("https://frontendfortheautobot.vercel.app"));
+        config.setAllowedOrigins(List.of("https://frontendfortheautobot.vercel.app","https://localhost:4200"));
 
         config.setAllowedHeaders(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
