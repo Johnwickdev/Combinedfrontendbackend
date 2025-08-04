@@ -254,17 +254,20 @@ for (NseInstrument i : all){
 }
         // Step 1: Filter valid NIFTY FUTs
         List<NseInstrument> niftyFutures = all.stream()
-                .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType().trim()))
-                .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment().trim()))
-                .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName().trim()))
+                .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
+                .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
+                .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
                 .filter(inst -> inst.getLot_size() == 75)
-                .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key().trim()))
+                .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
                 .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
                 .toList();
+
+        log.info("First record: name={}, type={}, segment={}, underlaying_key={}",all.get(0).getName(),all.get(0).getInstrumentType(),all.get(0).getSegment(),all.get(0).getUnderlying_key());
 
         log.info("✅ Found {} NIFTY FUT contracts with lot size 75", niftyFutures.size());
         niftyFutures.forEach(i ->
                 log.info("📄 {} | expiry={} | key={}", i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
+
         );
 
         // Step 2: Save to separate collection
