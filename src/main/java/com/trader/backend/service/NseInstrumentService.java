@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.HttpHeaders;
 import reactor.core.publisher.Mono;
-
+import org.springframework.beans.factory.annotation.Value;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -43,6 +43,10 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class NseInstrumentService {
+    private final WebClient webClient;
+
+@Value("${upstox.accessToken}")
+private String accessToken;
     private final NseInstrumentRepository repo;
     private final ObjectMapper mapper;
     private final MongoTemplate mongoTemplate;
