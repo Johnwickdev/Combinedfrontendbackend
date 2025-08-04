@@ -44,9 +44,7 @@ import java.util.stream.Collectors;
 @Service
 public class NseInstrumentService {
     private final WebClient webClient;
-
-@Value("${upstox.accessToken}")
-private String accessToken;
+    private final UpstoxAuthService upstoxAuthService;
     private final NseInstrumentRepository repo;
     private final ObjectMapper mapper;
     private final MongoTemplate mongoTemplate;
@@ -317,7 +315,7 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
 
     return webClient.get()
             .uri(url)
-            .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + upstoxAuthService.currentToken())
             .header(HttpHeaders.ACCEPT, "application/json")
             .retrieve()
             .bodyToMono(String.class)
