@@ -249,11 +249,11 @@ public void saveNiftyFuturesToMongo() {
 
         // Step 1: Filter valid NIFTY FUTs
         List<NseInstrument> niftyFutures = all.stream()
-                .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
-                .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
-                .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
+                .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType().trim()))
+                .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment().trim()))
+                .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName().trim()))
                 .filter(inst -> inst.getLot_size() == 75)
-                .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
+                .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key().trim()))
                 .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
                 .toList();
 
