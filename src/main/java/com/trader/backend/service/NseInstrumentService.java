@@ -246,7 +246,12 @@ public void saveNiftyFuturesToMongo() {
     try {
         File jsonFile = new File("src/main/resources/data/NSE.json");
         List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
-
+for (NseInstrument i : all){
+    if(i.getName() !=null) i.setName(i.getName().trim());
+    if (i.getSegment() !=null) i.setSegment(i.getSegment().trim());
+    if (i.getInstrumentType() !=null) i.setInstrumentType(i.getInstrumentType().trim());
+    if (i.getUnderlying_key() !=null) i.setUnderlying_key(i.getUnderlying_key().trim());
+}
         // Step 1: Filter valid NIFTY FUTs
         List<NseInstrument> niftyFutures = all.stream()
                 .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType().trim()))
