@@ -287,7 +287,7 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
     // 1. Fetch all saved NIFTY FUT contracts
     Query query = new Query();
     query.addCriteria(Criteria.where("segment").is("NSE_FO")
-            .and("instrument_type").is("FUT")
+            .and("instrumentType").is("FUT")
             .and("lot_size").is(75));  // Ensure it's real NIFTY, not BANKNIFTY or others
 
     List<NseInstrument> niftyFuts = mongoTemplate.find(query, NseInstrument.class, "nifty_futures");
