@@ -65,7 +65,7 @@ public Mono<ResponseEntity<String>> saveNiftyFutures() {
     nseInstrumentService.saveNiftyFuturesToMongo();
     return Mono.just(ResponseEntity.ok("✅ NIFTY FUTURES saved to MongoDB"));
 }
-@GetMapping("/api/nse/nifty-future-ltp")
+@GetMapping("/nifty-future-ltp")
 public Mono<ResponseEntity<Double>> getNiftyFutureLtp() {
     return nseInstrumentService.getNearestExpiryNiftyFutureLtp()
             .map(ResponseEntity::ok)
