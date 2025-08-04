@@ -479,6 +479,8 @@ private byte[] buildSubFrame(String instrumentKey) {
 
     return frame.toString().getBytes(StandardCharsets.UTF_8);
 }
-
+public MongoTemplate getMongoTemplate() {
+    return mongoTemplate;
+}
 
 }
