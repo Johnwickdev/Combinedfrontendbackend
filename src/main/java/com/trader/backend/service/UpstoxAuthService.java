@@ -98,14 +98,38 @@ public class UpstoxAuthService {
     }
 
     public void initLiveWebSocket() {
-        log.info("⚡ initLiveWebSocket() called after successful login");
-        try {
-            // ✅ AXISBANK for now — will replace with dynamic list later
-            liveFeedService.streamSingleInstrument("NSE_EQ|INE238A01034");
-        } catch (Exception e) {
-            log.error("🔥 Failed to start WebSocket stream", e);
+    log.info("⚡ initLiveWebSocket() called after successful login");
+
+    try {
+        // ✅ Find current month NIFTY FUT from DB
+        Query query = new Query();
+        query.addCriteria(Criteria.where("segment").is("NSE_FO")
+                .and("instrumentType").is("FUT")
+                .and("lot_size").is(75));
+        query.with(Sort.by(Sort.Direction.ASC, "expiry"));
+
+        List<NseInstrument> futures = liveFeedService.getMongoTemplate()
+                .find(query, NseInstrument.class, "nifty_futures");
+
+        long now = System.currentTimeMillis();
+        Optional<NseInstrument> nearest = futures.stream()
+                .filter(i -> i.getExpiry() > now)
+                .findFirst();
+
+        if (nearest.isEmpty()) {
+            log.warn("❌ No valid NIFTY FUTURE found to stream.");
+            return;
         }
+
+        String instrumentKey = nearest.get().getInstrument_key();
+        log.info("📌 Starting WebSocket for NIFTY FUT: {}", instrumentKey);
+
+        liveFeedService.streamSingleInstrument(instrumentKey);
+
+    } catch (Exception e) {
+        log.error("🔥 Failed to start WebSocket stream for NIFTY FUTURE", e);
     }
+}
 
     public String buildAuthUrl() {
         return UriComponentsBuilder
