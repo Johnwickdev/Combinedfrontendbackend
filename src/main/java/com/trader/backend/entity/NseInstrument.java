@@ -216,8 +216,9 @@ public class NseInstrument {
 
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-
+@JsonIgnoreProperties(ignoreUnknown = true)
 @Data
 @Document(collection = "nse_instruments")
 public class NseInstrument {
