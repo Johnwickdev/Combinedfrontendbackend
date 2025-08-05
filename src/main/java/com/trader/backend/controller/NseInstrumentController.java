@@ -74,5 +74,9 @@ public Mono<ResponseEntity<Double>> getNiftyFutureLtp() {
                 return Mono.just(ResponseEntity.status(500).build());
             });
 }
-
+@PostMapping("/nifty-fut-auto-stream")
+public ResponseEntity<String> autoStreamWithLtpAndSubscribe() {
+    liveFeedService.streamNiftyFutAndTriggerCEPE();
+    return ResponseEntity.ok("📡 NIFTY FUT LTP extracted, CE/PE filtered, and live stream started ✅");
+}
 }
