@@ -417,29 +417,32 @@ public void streamSingleInstrument(String instrumentKey) {
 
     // Step 2: Connect and stream
     fetchWebSocketUrl()
-            .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, subFrame))
-            .doOnNext(tick -> {
-                log.info("📡 [Nifty Future] Tick → {}", tick.toPrettyString());
-                sink.tryEmitNext(tick);
+        .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, subFrame))
+        .doOnNext(tick -> {
+            try {
+                // ✅ Parse LTP from incoming tick
+                JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("ltpc").path("ltp");
+                if (!ltpNode.isMissingNode()) {
+                    double ltp = ltpNode.asDouble();
+                    log.info("📉 LIVE LTP for NIFTY FUT: {}", ltp);
 
-                // ✅ Extract LTP from live tick JSON
-                try {
-                    String dynamicKey = tick.path("feeds").fieldNames().next();  // e.g. NSE_FO|64103
-                    double ltp = tick.path("feeds")
-                            .path(dynamicKey)
-                            .path("fullFeed")
-                            .path("marketFF")
-                            .path("ltpc")
-                            .path("ltp")
-                            .asDouble();
-
-                    log.info("📈 LIVE LTP for NIFTY FUT: {}", ltp);
-                } catch (Exception e) {
-                    log.warn("⚠️ Could not extract LTP from tick: {}", e.getMessage());
+                    // ✅ Trigger CE/PE filtering based on this LTP
+                    nseInstrumentService.filterStrikesAroundLtp(ltp);
+                } else {
+                    log.warn("⚠️ LTP not found in tick");
                 }
-            })
-            .doOnError(err -> log.error("❌ [AXIS] WebSocket stream failed:", err))
-            .subscribe();
+
+                // Just log for debugging
+                log.info("📡 [Nifty Future] Tick → {}", tick.toPrettyString());
+
+                // Still emit tick to sink if needed
+                sink.tryEmitNext(tick);
+            } catch (Exception e) {
+                log.error("❌ Error parsing tick JSON or filtering: ", e);
+            }
+        })
+        .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
+        .subscribe();
 }
 public void streamNiftyFutAndTriggerFiltering() {
     log.info("🚀 Auto-detecting NIFTY FUT from NSE.json and streaming for LTP...");
