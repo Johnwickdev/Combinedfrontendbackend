@@ -41,6 +41,10 @@ import java.util.Locale;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Comparator;
+import com.trader.backend.service.NseInstrumentService;
+import java.util.Optional;
+import java.util.Set;
+
 
 @Service
 @Slf4j
@@ -48,7 +52,8 @@ import java.util.Comparator;
 public class LiveFeedService {
     private final WriteApiBlocking writeApi ;
     private final UpstoxAuthService auth;
-
+// ✅ ADD THIS BELOW IT 👇
+private final NseInstrumentService nseInstrumentService;
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
 
@@ -483,5 +488,48 @@ public byte[] buildSubFrame(String instrumentKey) {
 public MongoTemplate getMongoTemplate() {
     return mongoTemplate;
 }
+public void streamNiftyFutAndTriggerCEPE() {
+    log.info("🚀 Subscribing to NIFTY FUT to extract LTP and filter CE/PE...");
 
+    try {
+        File file = new File("src/main/resources/data/NSE.json");
+        NseInstrument[] instruments = om.readValue(file, NseInstrument[].class);
+
+        NseInstrument nearestFut = Arrays.stream(instruments)
+                .filter(i -> "FUT".equalsIgnoreCase(i.getInstrumentType()))
+                .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
+                .filter(i -> "NSE_FO".equalsIgnoreCase(i.getSegment()))
+                .filter(i -> i.getUnderlying_key().equals("NSE_INDEX|Nifty 50"))
+                .sorted(Comparator.comparing(NseInstrument::getExpiry))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("No NIFTY FUT found."));
+
+        String instrumentKey = nearestFut.getInstrument_key();
+        log.info("📦 Subscribing to NIFTY FUT: {}", instrumentKey);
+
+        fetchWebSocketUrl()
+                .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
+                .doOnNext(tick -> {
+                    try {
+                        JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("ltpc").path("ltp");
+                        if (ltpNode.isNumber()) {
+                            double ltp = ltpNode.asDouble();
+                            log.info("📈 Extracted LTP from WebSocket: {}", ltp);
+
+                            // 🔥 Call the strike filter logic using service
+                            nseInstrumentService.filterStrikesAroundLtp(ltp);
+
+                            // 🎯 Start streaming CE/PE instruments
+                            this.streamFilteredNiftyOptions();
+                        }
+                    } catch (Exception ex) {
+                        log.error("⚠️ Failed to extract LTP or trigger filtering", ex);
+                    }
+                })
+                .subscribe();
+
+    } catch (Exception e) {
+        log.error("❌ Failed to load NIFTY FUT from file", e);
+    }
+}
 }
