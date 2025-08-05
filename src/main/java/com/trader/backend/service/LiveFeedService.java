@@ -48,6 +48,7 @@ import java.util.Comparator;
 public class LiveFeedService {
     private final WriteApiBlocking writeApi ;
     private final UpstoxAuthService auth;
+
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
 
@@ -95,7 +96,7 @@ public class LiveFeedService {
      * STEP 6.1: fetch the actual WS URL (handles redirect or JSON token)
      **/
 
-    private Mono<String> fetchWebSocketUrl() {
+    public Mono<String> fetchWebSocketUrl() {
         log.info("⟳ entering fetchWebSocketUrl(), current token={}", auth.currentToken());
         return WebClient.builder()
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + auth.currentToken())
@@ -300,7 +301,7 @@ public class LiveFeedService {
     }
 
 
-    private Flux<JsonNode> openWebSocketForOptions(String wsUrl, byte[] subFrame) {
+    public Flux<JsonNode> openWebSocketForOptions(String wsUrl, byte[] subFrame) {
         ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
         Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
 
@@ -413,7 +414,7 @@ public void streamSingleInstrument(String instrumentKey) {
     fetchWebSocketUrl()
             .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, subFrame))
             .doOnNext(tick -> {
-                log.info("📡 [AXIS] Tick → {}", tick.toPrettyString());
+                log.info("📡 [Nifty Future] Tick → {}", tick.toPrettyString());
                 sink.tryEmitNext(tick);
             })
             .doOnError(err -> log.error("❌ [AXIS] WebSocket stream failed:", err))
@@ -468,7 +469,7 @@ public void streamNiftyFutAndTriggerFiltering() {
     }
 }
 
-private byte[] buildSubFrame(String instrumentKey) {
+public byte[] buildSubFrame(String instrumentKey) {
     ObjectNode frame = om.createObjectNode();
     frame.put("guid", "nifty-fut-guid");
     frame.put("method", "sub");
