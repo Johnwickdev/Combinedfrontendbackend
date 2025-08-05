@@ -421,11 +421,26 @@ public void streamSingleInstrument(String instrumentKey) {
             .doOnNext(tick -> {
                 log.info("📡 [Nifty Future] Tick → {}", tick.toPrettyString());
                 sink.tryEmitNext(tick);
+
+                // ✅ Extract LTP from live tick JSON
+                try {
+                    String dynamicKey = tick.path("feeds").fieldNames().next();  // e.g. NSE_FO|64103
+                    double ltp = tick.path("feeds")
+                            .path(dynamicKey)
+                            .path("fullFeed")
+                            .path("marketFF")
+                            .path("ltpc")
+                            .path("ltp")
+                            .asDouble();
+
+                    log.info("📈 LIVE LTP for NIFTY FUT: {}", ltp);
+                } catch (Exception e) {
+                    log.warn("⚠️ Could not extract LTP from tick: {}", e.getMessage());
+                }
             })
             .doOnError(err -> log.error("❌ [AXIS] WebSocket stream failed:", err))
             .subscribe();
 }
-
 public void streamNiftyFutAndTriggerFiltering() {
     log.info("🚀 Auto-detecting NIFTY FUT from NSE.json and streaming for LTP...");
 
