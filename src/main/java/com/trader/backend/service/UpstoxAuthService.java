@@ -104,7 +104,7 @@ public class UpstoxAuthService {
     log.info("⚡ initLiveWebSocket() called after successful login");
 
     try {
-        // ✅ Find nearest NIFTY FUTURE from DB
+        // ✅ Find current month NIFTY FUT from DB
         Query query = new Query();
         query.addCriteria(Criteria.where("segment").is("NSE_FO")
                 .and("instrumentType").is("FUT")
@@ -127,93 +127,12 @@ public class UpstoxAuthService {
         String instrumentKey = nearest.get().getInstrument_key();
         log.info("📌 Starting WebSocket for NIFTY FUT: {}", instrumentKey);
 
-        // ✅ Subscribe to FUT ticks
-        liveFeedService.fetchWebSocketUrl()
-                .flatMapMany(wsUrl ->
-                        liveFeedService.openWebSocketForOptions(wsUrl,
-                                liveFeedService.buildSubFrame(instrumentKey))
-                )
-                .doOnNext(tick -> {
-                    try {
-                        JsonNode ltpNode = tick.path("feeds")
-                                .path(instrumentKey)
-                                .path("ltpc")
-                                .path("ltp");
-
-                        if (ltpNode.isNumber()) {
-                            double ltp = ltpNode.asDouble();
-                            log.info("📈 [LIVE LTP] NIFTY FUT = {}", ltp);
-
-                            // ✅ Filter CE/PE strikes
-                            liveFeedService.getMongoTemplate()
-                                    .getConverter()
-                                    .getMappingContext()
-                                    .getPersistentEntity(NseInstrument.class); // Hack to initialize entity class
-
-                            liveFeedService.getMongoTemplate()
-                                    .getConverter()
-                                    .getMappingContext(); // Just for warmup
-
-                            liveFeedService.getMongoTemplate()
-                                    .getDb()
-                                    .getName(); // Trigger initialization
-
-                            // 👇 Call filter logic
-                            liveFeedService.getMongoTemplate()
-                                    .getConverter()
-                                    .getMappingContext(); // Dummy warmup
-
-                            liveFeedService.getMongoTemplate()
-                                    .getDb(); // Dummy warmup
-
-                            // Use injected service to filter and stream
-                            liveFeedService.getMongoTemplate()
-                                    .executeCommand("{ ping: 1 }"); // dummy check
-
-                            // ☑️ Now call strike filter + live feed
-                            liveFeedService.getMongoTemplate().getConverter(); // another warmup
-
-                            // 🧠 Actual logic
-                            liveFeedService.getMongoTemplate()
-                                    .getConverter(); // warmup done
-
-                            // Now call actual filtering and streaming
-                            liveFeedService.getMongoTemplate().getConverter(); // done
-
-                            liveFeedService.getMongoTemplate().getDb(); // done
-
-                            // ✅ Real calls now
-                            liveFeedService.getMongoTemplate().getConverter(); // done
-                            liveFeedService.getMongoTemplate().getDb(); // done
-
-                            liveFeedService.getMongoTemplate(); // done
-
-                            // Finally:
-                            // Call your filtering logic
-                            liveFeedService.getMongoTemplate()
-                                    .getDb(); // keep warm
-
-                            // IMPORTANT: use injected NseInstrumentService (or move logic)
-                            // ❗You must inject NseInstrumentService in this class
-                            // OR move `filterStrikesAroundLtp()` into LiveFeedService
-
-                            // For now, just call manually if not wired
-
-                            // Then stream
-                            liveFeedService.streamFilteredNiftyOptions();
-                        }
-                    } catch (Exception e) {
-                        log.error("⚠️ Failed to extract LTP from FUT tick", e);
-                    }
-                })
-                .doOnError(err -> log.error("🔥 Error during FUT tick stream", err))
-                .subscribe();
+        liveFeedService.streamSingleInstrument(instrumentKey);
 
     } catch (Exception e) {
         log.error("🔥 Failed to start WebSocket stream for NIFTY FUTURE", e);
     }
 }
-
     public String buildAuthUrl() {
         return UriComponentsBuilder
                 .fromUriString("https://api.upstox.com/v2/login/authorization/dialog")
