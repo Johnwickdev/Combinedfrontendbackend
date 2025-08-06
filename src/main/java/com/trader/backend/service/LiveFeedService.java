@@ -478,9 +478,13 @@ public void streamNiftyFutAndTriggerFiltering() {
                         JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("fullFeed").path("marketFF").path("ltpc").path("ltp");
 
                         if (ltpNode.isNumber()) {
-                            double liveLtp = ltpNode.asDouble();
-                            log.info("📈 [NIFTY FUT] Live LTP: {}", liveLtp);
+    double liveLtp = ltpNode.asDouble();
+    long ts = tick.has("currentTs") ? tick.get("currentTs").asLong() : System.currentTimeMillis();
 
+    // ✅ Save to Influx
+    writeNiftyFutLtpToInflux(liveLtp, ts);
+
+    log.info("📈 [NIFTY FUT] Live LTP: {}", liveLtp);
                             if (ltpCaptured.compareAndSet(false, true)) {
                                 log.info("🎯 LTP received — triggering CE/PE filtering...");
                                 nseInstrumentService.filterAndSaveStrikesAroundLtp(liveLtp);
