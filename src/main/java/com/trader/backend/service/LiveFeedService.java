@@ -558,4 +558,14 @@ public void streamNiftyFutAndTriggerCEPE() {
         log.error("❌ Failed to load NIFTY FUT from file", e);
     }
 }
+public void writeNiftyFutLtpToInflux(double ltp, long timestamp) {
+    Point point = Point
+            .measurement("nifty_fut_ltp")
+            .addTag("symbol", "NIFTY")
+            .addField("ltp", ltp)
+            .time(Instant.ofEpochMilli(timestamp), WritePrecision.MS);
+
+    writeApi.writePoint(point);
+    log.info("✅ [Influx] NIFTY FUT LTP written: {}", point);
+}
 }
