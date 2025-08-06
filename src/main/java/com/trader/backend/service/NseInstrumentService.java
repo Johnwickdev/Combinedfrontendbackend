@@ -1,5 +1,9 @@
 package com.trader.backend.service;
-
+    import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
@@ -80,35 +84,42 @@ public class NseInstrumentService {
             log.error("❌ Failed during filtering/saving: ", e);
         }
     }
-    public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
-        try {
-            log.info("📊 Calculating strike range around LTP: {}", niftyLtp);
 
-            double baseStrike = Math.round(niftyLtp / 50.0) * 50;
-            Set<Double> targetStrikes = new HashSet<>();
-            for (int i = -15; i <= 15; i++) {
-                targetStrikes.add(baseStrike + (i * 50));
-            }
 
-            InputStream jsonStream = new FileInputStream("src/main/resources/NSE.json");
-            ObjectMapper mapper = new ObjectMapper();
-            List<NseInstrument> all = Arrays.asList(mapper.readValue(jsonStream, NseInstrument[].class));
+public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
+    try {
+        log.info("📊 Calculating strike range around LTP: {}", niftyLtp);
 
-            List<NseInstrument> filtered = all.stream()
-                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
-                    .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
-                    .filter(i -> targetStrikes.contains(i.getStrikePrice()))
-                    .collect(Collectors.toList());
+        double baseStrike = Math.round(niftyLtp / 50.0) * 50;
 
-            log.info("💾 Saving {} filtered instruments to 'filtered_nifty_premiums' collection...", filtered.size());
-            mongoTemplate.dropCollection("filtered_nifty_premiums");
-            mongoTemplate.insert(filtered, "filtered_nifty_premiums");
-            log.info("✅ Save complete.");
-
-        } catch (Exception e) {
-            log.error("❌ Error during strike filtering", e);
+        // 🎯 Create set of target strikes from baseStrike - 750 to +750 (15 each side)
+        Set<Double> targetStrikes = new HashSet<>();
+        for (int i = -15; i <= 15; i++) {
+            targetStrikes.add(baseStrike + (i * 50));
         }
+
+        // 🔍 Load NSE.json and parse
+        InputStream jsonStream = new FileInputStream("src/main/resources/data/NSE.json"); // 🔄 Fixed path
+        ObjectMapper mapper = new ObjectMapper();
+        List<NseInstrument> all = Arrays.asList(mapper.readValue(jsonStream, NseInstrument[].class));
+
+        // ⚙️ Filter CE and PE instruments for NIFTY
+        List<NseInstrument> filtered = all.stream()
+            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+            .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
+            .filter(i -> targetStrikes.contains(i.getStrikePrice()))
+            .collect(Collectors.toList());
+
+        // 💾 Save to MongoDB
+        log.info("💾 Saving {} instruments to 'filtered_nifty_premiums' collection...", filtered.size());
+        mongoTemplate.dropCollection("filtered_nifty_premiums");
+        mongoTemplate.insert(filtered, "filtered_nifty_premiums");
+        log.info("✅ CE/PE filtering and save complete ✅");
+
+    } catch (Exception e) {
+        log.error("❌ Error during CE/PE strike filtering and saving", e);
     }
+}
     public void filterStrikesAroundLtp(double niftyLtp) {
         log.info("🔍 [STEP 1] Start filtering strikes around Nifty LTP: {}", niftyLtp);
 
