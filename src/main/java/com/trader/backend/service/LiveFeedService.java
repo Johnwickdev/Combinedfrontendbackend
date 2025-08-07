@@ -421,7 +421,13 @@ public void streamSingleInstrument(String instrumentKey) {
         .doOnNext(tick -> {
             try {
                 // ✅ Parse LTP from incoming tick
-                JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("ltpc").path("ltp");
+                // ✅ Correct path:
+JsonNode ltpNode = tick.path("feeds")
+    .path(instrumentKey)
+    .path("fullFeed")
+    .path("marketFF")
+    .path("ltpc")
+    .path("ltp");
                 if (!ltpNode.isMissingNode()) {
                     double ltp = ltpNode.asDouble();
                     log.info("📉 LIVE LTP for NIFTY FUT: {}", ltp);
