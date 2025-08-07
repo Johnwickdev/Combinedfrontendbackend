@@ -479,20 +479,30 @@ public void streamNiftyFutAndTriggerFiltering() {
                         writeApi.writePoint(toPoint(tick));
 
                         // ✅ Parse LTP
-                        JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("fullFeed").path("marketFF").path("ltpc").path("ltp");
+                        log.debug("🔍 DEBUG full tick: {}", tick.toPrettyString()); // Helps debug every structure
 
-                        if (ltpNode.isNumber()) {
-                            double liveLtp = ltpNode.asDouble();
-                            log.info("📈 [NIFTY FUT] Live LTP: {}", liveLtp);
+JsonNode ltpNode = tick.path("feeds")
+                       .path(instrumentKey)
+                       .path("fullFeed")
+                       .path("marketFF")
+                       .path("ltpc")
+                       .path("ltp");
 
-                            if (ltpCaptured.compareAndSet(false, true)) {
-                                log.info("🎯 LTP received — triggering CE/PE filtering...");
-                                nseInstrumentService.filterAndSaveStrikesAroundLtp(liveLtp);
-                                streamFilteredNiftyOptions(); // Optional
-                            }
-                        } else {
-                            log.warn("⚠️ LTP not found in tick");
-                        }
+if (ltpNode != null && ltpNode.isNumber()) {
+    double liveLtp = ltpNode.asDouble();
+    log.info("📈 [NIFTY FUT] Live LTP: {}", liveLtp);
+
+    // Store into InfluxDB
+    writeNiftyFutLtpToInflux(liveLtp, System.currentTimeMillis());
+
+    if (ltpCaptured.compareAndSet(false, true)) {
+        log.info("🎯 LTP received — triggering CE/PE filtering...");
+        nseInstrumentService.filterAndSaveStrikesAroundLtp(liveLtp);
+        streamFilteredNiftyOptions();
+    }
+} else {
+    log.warn("⚠️ LTP not found in tick — instrumentKey={} | path: feeds > {} > fullFeed > marketFF > ltpc > ltp", instrumentKey, instrumentKey);
+}
                     } catch (Exception ex) {
                         log.error("⚠️ Error parsing tick", ex);
                     }
