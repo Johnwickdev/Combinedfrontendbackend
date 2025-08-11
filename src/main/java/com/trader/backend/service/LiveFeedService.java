@@ -57,7 +57,8 @@ public class LiveFeedService {
 private final NseInstrumentService nseInstrumentService;
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
-
+// Tracks currently subscribed CE/PE instruments for debug/monitoring
+private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
     private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
 
     /**
