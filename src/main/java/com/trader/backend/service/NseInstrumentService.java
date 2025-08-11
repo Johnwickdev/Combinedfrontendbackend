@@ -200,7 +200,7 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
             log.info("✅ Saved {} filtered instruments to collection: filtered_nifty_premiums", selected.size());
         }
 
-
+/*
         if (!filtered.isEmpty()) {
             // Optional: clean up existing if any
             if (mongoTemplate.collectionExists("filtered_nifty_premiums")) {
@@ -211,6 +211,7 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
         } else {
             log.warn("⚠️ No instruments matched — collection not created/overwritten.");
         }
+*/
     }
 
     public void saveAllNiftyOptionsFromJson() {
