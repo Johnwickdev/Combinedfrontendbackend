@@ -361,47 +361,23 @@ private final NseInstrumentService nseInstrumentService;
         return local.asFlux();
     }
     public void streamFilteredNiftyOptions() {
-        log.info("🚀 Starting live stream for filtered CE/PE from MongoDB...");
+    log.info("🚀 (re)starting live stream for filtered CE/PE from MongoDB...");
 
-        // Step 1: Fetch instrument keys from MongoDB
-        List<String> instrumentKeys = mongoTemplate.findAll(NseInstrument.class, "filtered_nifty_premiums")
-                .stream()
-                .map(NseInstrument::getInstrument_key)
-                .distinct()
-                .toList();
-
-        log.info("📦 Fetched {} instrument keys from filtered_nifty_premiums", instrumentKeys.size());
-        instrumentKeys.forEach(key -> log.info("🔑 {}", key));
-
-        if (instrumentKeys.isEmpty()) {
-            log.warn("⚠️ No instruments found to subscribe. Aborting stream.");
-            return;
-        }
-
-        // Step 2: Build dynamic sub frame
-        ObjectNode frame = om.createObjectNode();
-        frame.put("guid", "filtered-options-guid");
-        frame.put("method", "sub");
-
-        ObjectNode data = frame.putObject("data");
-        data.put("mode", "full");
-
-        ArrayNode keysArray = data.putArray("instrumentKeys");
-        instrumentKeys.forEach(keysArray::add);
-
-        byte[] frameBytes = frame.toString().getBytes(StandardCharsets.UTF_8);
-        log.info("🧾 Final SUB_FRAME for filtered CE/PE: {}", frame.toPrettyString());
-
-        // Step 3: Connect to WebSocket and stream data
-        fetchWebSocketUrl()
-                .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, frameBytes))
-                .doOnNext(tick -> {
-                    log.info("📡 Live tick → {}", tick.toPrettyString());
-                    sink.tryEmitNext(tick);
-                })
-                .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
-                .subscribe();
-    }
+    Mono.defer(() -> auth.ensureValidToken().then(fetchWebSocketUrl()))
+        .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, this::buildFilteredSubFrame))
+        .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
+        .doOnSubscribe(s -> log.info("📡 Subscribed to filtered CE/PE (auto-resub on reconnect)"))
+        .doOnNext(tick -> {
+            sink.tryEmitNext(tick);
+            // light log to reduce noise
+            if (tick.has("feeds")) {
+                Iterator<String> it = tick.get("feeds").fieldNames();
+                if (it.hasNext()) log.debug("⏳ tick for {}", it.next());
+            }
+        })
+        .doOnError(err -> log.error("❌ filtered option feed failed:", err))
+        .subscribe();
+}
 public void streamSingleInstrument(String instrumentKey) {
     log.info("🚀 Starting live stream for instrument → {}", instrumentKey);
 
@@ -559,21 +535,34 @@ public void streamNiftyFutAndTriggerCEPE() {
                 .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
                 .doOnNext(tick -> {
                     try {
-                        JsonNode ltpNode = tick.path("feeds").path(instrumentKey).path("ltpc").path("ltp");
-                        if (ltpNode.isNumber()) {
-                            double ltp = ltpNode.asDouble();
-                            log.info("📈 Extracted LTP from WebSocket: {}", ltp);
+                        // ✅ Correct LTP path under fullFeed → marketFF → ltpc → ltp
+                        JsonNode ltpNode = tick.path("feeds")
+                                .path(instrumentKey)
+                                .path("fullFeed")
+                                .path("marketFF")
+                                .path("ltpc")
+                                .path("ltp");
 
-                            // 🔥 Call the strike filter logic using service
+                        if (ltpNode != null && ltpNode.isNumber()) {
+                            double ltp = ltpNode.asDouble();
+                            log.info("📈 Extracted NIFTY FUT LTP: {}", ltp);
+
+                            // write to Influx (optional)
+                            writeNiftyFutLtpToInflux(ltp, System.currentTimeMillis());
+
+                            // 🔥 Filter & save CE/PE based on LTP
                             nseInstrumentService.filterStrikesAroundLtp(ltp);
 
-                            // 🎯 Start streaming CE/PE instruments
-                            this.streamFilteredNiftyOptions();
+                            // 🎯 (Re)start the filtered CE/PE stream (dynamic + reconnect-safe)
+                            streamFilteredNiftyOptions();
+                        } else {
+                            log.warn("⚠️ LTP not found in tick — instrumentKey={}", instrumentKey);
                         }
                     } catch (Exception ex) {
                         log.error("⚠️ Failed to extract LTP or trigger filtering", ex);
                     }
                 })
+                .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
                 .subscribe();
 
     } catch (Exception e) {
@@ -589,5 +578,48 @@ public void writeNiftyFutLtpToInflux(double ltp, long timestamp) {
 
     writeApi.writePoint(point);
     log.info("✅ [Influx] NIFTY FUT LTP written: {}", point);
+}
+/** Builds a fresh SUB frame from the current filtered_nifty_premiums (15 CE + 15 PE). */
+private byte[] buildFilteredSubFrame() {
+    List<String> keys = nseInstrumentService.getInstrumentKeysForLiveSubscription();
+    if (keys.isEmpty()) {
+        log.warn("⚠️ No filtered instruments found in Mongo (filtered_nifty_premiums).");
+    } else {
+        // optional: track what we're subscribing to (debug)
+        subscribed.clear();
+        subscribed.addAll(keys);
+        log.info("📦 Will (re)subscribe {} instruments from filtered_nifty_premiums", keys.size());
+    }
+
+    ObjectNode frame = om.createObjectNode();
+    frame.put("guid", "filtered-options-guid");
+    frame.put("method", "sub");
+
+    ObjectNode data = frame.putObject("data");
+    data.put("mode", "full");
+    ArrayNode arr = data.putArray("instrumentKeys");
+    keys.forEach(arr::add);
+
+    return frame.toString().getBytes(StandardCharsets.UTF_8);
+}
+/**
+ * Opens a WS and sends a fresh SUB frame per connection (frameSupplier is called on every connect).
+ * Use this for dynamic lists that may change between reconnects.
+ */
+private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.function.Supplier<byte[]> frameSupplier) {
+    ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+    Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
+
+    client.execute(URI.create(wsUrl), session ->
+            session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(frameSupplier.get()))))
+                   .doOnSuccess(v -> log.info("▶︎ dynamic subscribe frame sent"))
+                   .thenMany(session.receive()
+                           .map(WebSocketMessage::getPayload)
+                           .map(this::parseProtoFeedResponse)
+                           .doOnNext(local::tryEmitNext))
+                   .then()
+    ).subscribe();
+
+    return local.asFlux();
 }
 }
