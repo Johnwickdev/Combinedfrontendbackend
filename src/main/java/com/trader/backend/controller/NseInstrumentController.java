@@ -79,4 +79,17 @@ public ResponseEntity<String> autoStreamWithLtpAndSubscribe() {
     liveFeedService.streamNiftyFutAndTriggerCEPE();
     return ResponseEntity.ok("📡 NIFTY FUT LTP extracted, CE/PE filtered, and live stream started ✅");
 }
+    @PostMapping("/refresh-current-week")
+public ResponseEntity<String> refreshCurrentWeek() {
+    // Uses IST Fri→Wed rule to keep only this Wednesday’s expiry in nse_instruments
+    nseInstrumentService.refreshNiftyOptionsCurrentWeekByLocalRule();
+    return ResponseEntity.ok("✅ Refreshed nse_instruments for THIS WEEK (Fri→Wed IST)");
+}
+
+@PostMapping("/purge-expired")
+public ResponseEntity<String> purgeExpired() {
+    nseInstrumentService.purgeExpiredOptionDocs();
+    return ResponseEntity.ok("🧹 Purged expired docs from nse_instruments & filtered_nifty_premiums");
+}
+
 }
