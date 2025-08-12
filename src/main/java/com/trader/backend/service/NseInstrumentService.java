@@ -1,5 +1,13 @@
 package com.trader.backend.service;
-    import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.temporal.TemporalAdjusters;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.*;
@@ -120,55 +128,48 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
         log.error("❌ Error during CE/PE strike filtering and saving", e);
     }
 }
-    public void filterStrikesAroundLtp(double niftyLtp) {
-    log.info("🔍 Filtering around LTP={} for CURRENT-WEEK expiry (15 CE + 15 PE, ATM-first)", niftyLtp);
+  public void filterStrikesAroundLtp(double niftyLtp) {
+    LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
+    long dayStart = istStartOfDayMs(targetWed);
+    long dayEnd   = istEndOfDayMs(targetWed);
+    log.info("🔍 Filtering around LTP={} for cycle Wed={} (IST)", niftyLtp, targetWed);
 
-    Long currentWeekExpiry = mongoTemplate.find(
-                    new Query(Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"))
-                            .with(Sort.by(Sort.Direction.ASC, "expiry"))
-                            .limit(1),
-                    NseInstrument.class,
-                    "nse_instruments")
-            .stream()
-            .map(NseInstrument::getExpiry)
-            .findFirst()
-            .orElse(null);
-
-    if (currentWeekExpiry == null) {
-        log.warn("⚠️ nse_instruments is empty or stale. Call refreshNiftyOptionsCurrentWeek() first.");
+    // Ensure DB has this cycle loaded
+    Query probe = new Query(new Criteria().andOperator(
+            Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
+            Criteria.where("segment").is("NSE_FO"),
+            Criteria.where("instrumentType").in("CE", "PE"),
+            Criteria.where("expiry").gte(dayStart).lt(dayEnd)
+    ));
+    List<NseInstrument> snapshot = mongoTemplate.find(probe, NseInstrument.class, "nse_instruments");
+    if (snapshot.isEmpty()) {
+        log.warn("⚠️ nse_instruments empty for Wed={}. Call refreshNiftyOptionsCurrentWeekByLocalRule() first.", targetWed);
         return;
     }
 
     double base = Math.round(niftyLtp / 50.0) * 50;
     Set<Integer> strikeSet = new LinkedHashSet<>();
-    for (int i = -30; i <= 30; i++) {
-        strikeSet.add((int) (base + i * 50));
-    }
+    for (int i = -30; i <= 30; i++) strikeSet.add((int)(base + i*50));
 
     Query q = new Query(new Criteria().andOperator(
             Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
             Criteria.where("segment").is("NSE_FO"),
             Criteria.where("instrumentType").in("CE", "PE"),
             Criteria.where("strikePrice").in(strikeSet),
-            Criteria.where("expiry").is(currentWeekExpiry)
+            Criteria.where("expiry").gte(dayStart).lt(dayEnd)   // ← strict cycle match
     ));
     List<NseInstrument> pool = mongoTemplate.find(q, NseInstrument.class, "nse_instruments");
 
-    // ✅ Explicit types in comparator to avoid Object inference
-Comparator<NseInstrument> byDistance = Comparator
-        .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
-        .thenComparingDouble(NseInstrument::getStrikePrice);
+    Comparator<NseInstrument> byDistance = Comparator
+            .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
+            .thenComparingDouble(NseInstrument::getStrikePrice);
 
     List<NseInstrument> ce = pool.stream()
             .filter(i -> "CE".equals(i.getInstrumentType()))
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
                     Collectors.toMap(
-                            NseInstrument::getStrikePrice,
-                            i -> i,
-                            (a, b) -> a,
-                            LinkedHashMap::new
-                    ),
+                            NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
                     m -> new ArrayList<>(m.values())
             ));
 
@@ -177,11 +178,7 @@ Comparator<NseInstrument> byDistance = Comparator
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
                     Collectors.toMap(
-                            NseInstrument::getStrikePrice,
-                            i -> i,
-                            (a, b) -> a,
-                            LinkedHashMap::new
-                    ),
+                            NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
                     m -> new ArrayList<>(m.values())
             ));
 
@@ -190,13 +187,13 @@ Comparator<NseInstrument> byDistance = Comparator
     selected.addAll(pe.stream().limit(15).toList());
 
     if (selected.isEmpty()) {
-        log.warn("⚠️ No instruments selected for filtered_nifty_premiums");
+        log.warn("⚠️ No instruments selected for filtered_nifty_premiums (Wed={})", targetWed);
         return;
     }
 
     mongoTemplate.dropCollection("filtered_nifty_premiums");
     mongoTemplate.insert(selected, "filtered_nifty_premiums");
-    log.info("✅ Saved {} instruments (15 CE + 15 PE) to filtered_nifty_premiums", selected.size());
+    log.info("✅ Saved {} (15 CE + 15 PE) for Wed={} into filtered_nifty_premiums", selected.size(), targetWed);
 }
 
     public void saveAllNiftyOptionsFromJson() {
@@ -225,12 +222,19 @@ Comparator<NseInstrument> byDistance = Comparator
             log.error("❌ Error reading NSE.json or saving to MongoDB", e);
         }
     }
-    public List<String> getInstrumentKeysForLiveSubscription() {
+   public List<String> getInstrumentKeysForLiveSubscription() {
+    LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
+    long dayStart = istStartOfDayMs(targetWed);
+    long dayEnd   = istEndOfDayMs(targetWed);
     long now = System.currentTimeMillis();
-    List<NseInstrument> instruments = mongoTemplate.findAll(NseInstrument.class, "filtered_nifty_premiums");
+
+    Query q = new Query(new Criteria().andOperator(
+            Criteria.where("expiry").gte(dayStart).lt(dayEnd)  // only this cycle
+    ));
+    List<NseInstrument> instruments = mongoTemplate.find(q, NseInstrument.class, "filtered_nifty_premiums");
 
     List<String> keys = instruments.stream()
-            .filter(i -> i.getExpiry() > now)          // expiry is long primitive
+            .filter(i -> i.getExpiry() > now)
             .map(NseInstrument::getInstrument_key)
             .filter(Objects::nonNull)
             .distinct()
@@ -238,12 +242,13 @@ Comparator<NseInstrument> byDistance = Comparator
             .toList();
 
     if (keys.isEmpty()) {
-        log.warn("⚠️ No valid (non-expired) keys found in filtered_nifty_premiums.");
+        log.warn("⚠️ No valid keys for Wed={} (filtered_nifty_premiums).", targetWed);
     } else {
-        log.info("✅ Live subscription keys ready: {}", keys.size());
+        log.info("✅ Keys ready for Wed={}: {}", targetWed, keys.size());
     }
     return keys;
 }
+
 public void saveNiftyFuturesToMongo() {
     log.info("📂 Extracting NIFTY FUTURE records from NSE.json...");
 
@@ -389,4 +394,68 @@ private long detectCurrentWeekExpiryEpoch(List<NseInstrument> all) {
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("No future expiry found in NSE.json"));
 }
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+private static final LocalTime EXPIRY_CUTOFF = LocalTime.of(15, 30); // 3:30 PM IST
+
+private LocalDate resolveCurrentCycleExpiryWednesdayIST() {
+    ZonedDateTime now = ZonedDateTime.now(IST);
+    if (now.getDayOfWeek() == DayOfWeek.WEDNESDAY) {
+        return now.toLocalTime().isAfter(EXPIRY_CUTOFF)
+                ? now.toLocalDate().plusWeeks(1).with(DayOfWeek.WEDNESDAY)
+                : now.toLocalDate();
+    }
+    return now.toLocalDate().with(TemporalAdjusters.next(DayOfWeek.WEDNESDAY));
+}
+
+private long istStartOfDayMs(LocalDate d) {
+    return d.atStartOfDay(IST).toInstant().toEpochMilli();
+}
+private long istEndOfDayMs(LocalDate d) {
+    return d.plusDays(1).atStartOfDay(IST).toInstant().toEpochMilli();
+}
+public void refreshNiftyOptionsCurrentWeekByLocalRule() {
+    log.info("🔁 Refreshing nse_instruments by IST cycle (Fri→Wed)...");
+    try {
+        File jsonFile = new File("src/main/resources/data/NSE.json");
+        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
+
+        for (NseInstrument i : all) {
+            if (i.getName() != null) i.setName(i.getName().trim());
+            if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
+            if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
+            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+        }
+
+        LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
+        long dayStart = istStartOfDayMs(targetWed);
+        long dayEnd   = istEndOfDayMs(targetWed);
+
+        List<NseInstrument> currentWeek = all.stream()
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                // strict IST date window match (prevents “31 JUL 25” leaks)
+                .filter(i -> i.getExpiry() >= dayStart && i.getExpiry() < dayEnd)
+                .toList();
+
+        mongoTemplate.dropCollection("nse_instruments");
+        mongoTemplate.insert(currentWeek, "nse_instruments");
+
+        log.info("✅ nse_instruments saved for Wed={} ({} docs)", targetWed, currentWeek.size());
+    } catch (Exception e) {
+        log.error("❌ Failed refreshing by local rule", e);
+    }
+}
+public void purgeExpiredOptionDocs() {
+    long now = System.currentTimeMillis();
+    Query expired = new Query(Criteria.where("expiry").lt(now));
+
+    long del1 = mongoTemplate.remove(expired, "nse_instruments").getDeletedCount();
+    long del2 = mongoTemplate.remove(expired, "filtered_nifty_premiums").getDeletedCount();
+    log.info("🧹 Purged expired: nse_instruments={}, filtered_nifty_premiums={}", del1, del2);
+}
+
 }
