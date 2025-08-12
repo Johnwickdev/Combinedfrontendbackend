@@ -120,11 +120,9 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
         log.error("❌ Error during CE/PE strike filtering and saving", e);
     }
 }
-    // UPDATED: Always pick CURRENT-WEEK expiry from DB, then select exactly 15 CE + 15 PE nearest to ATM
-public void filterStrikesAroundLtp(double niftyLtp) {
+    public void filterStrikesAroundLtp(double niftyLtp) {
     log.info("🔍 Filtering around LTP={} for CURRENT-WEEK expiry (15 CE + 15 PE, ATM-first)", niftyLtp);
 
-    // 1) confirm we have current-week instruments in DB
     Long currentWeekExpiry = mongoTemplate.find(
                     new Query(Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"))
                             .with(Sort.by(Sort.Direction.ASC, "expiry"))
@@ -141,14 +139,12 @@ public void filterStrikesAroundLtp(double niftyLtp) {
         return;
     }
 
-    // 2) build a wide strike set around ATM (50-point steps)
     double base = Math.round(niftyLtp / 50.0) * 50;
     Set<Integer> strikeSet = new LinkedHashSet<>();
     for (int i = -30; i <= 30; i++) {
         strikeSet.add((int) (base + i * 50));
     }
 
-    // 3) query CURRENT-WEEK CE/PE pool from Mongo
     Query q = new Query(new Criteria().andOperator(
             Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
             Criteria.where("segment").is("NSE_FO"),
@@ -158,18 +154,21 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     ));
     List<NseInstrument> pool = mongoTemplate.find(q, NseInstrument.class, "nse_instruments");
 
-    // 4) pick nearest-to-ATM, unique by strike, 15 CE + 15 PE
+    // ✅ Explicit types in comparator to avoid Object inference
     Comparator<NseInstrument> byDistance = Comparator
-            .comparingDouble(i -> Math.abs(i.getStrikePrice() - base))
-            .thenComparing(NseInstrument::getStrikePrice);
+            .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
+            .thenComparingDouble(i -> i.getStrikePrice().doubleValue());
 
     List<NseInstrument> ce = pool.stream()
             .filter(i -> "CE".equals(i.getInstrumentType()))
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
                     Collectors.toMap(
-                            NseInstrument::getStrikePrice, i -> i,
-                            (a, b) -> a, LinkedHashMap::new),
+                            NseInstrument::getStrikePrice,
+                            i -> i,
+                            (a, b) -> a,
+                            LinkedHashMap::new
+                    ),
                     m -> new ArrayList<>(m.values())
             ));
 
@@ -178,8 +177,11 @@ public void filterStrikesAroundLtp(double niftyLtp) {
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
                     Collectors.toMap(
-                            NseInstrument::getStrikePrice, i -> i,
-                            (a, b) -> a, LinkedHashMap::new),
+                            NseInstrument::getStrikePrice,
+                            i -> i,
+                            (a, b) -> a,
+                            LinkedHashMap::new
+                    ),
                     m -> new ArrayList<>(m.values())
             ));
 
@@ -223,13 +225,12 @@ public void filterStrikesAroundLtp(double niftyLtp) {
             log.error("❌ Error reading NSE.json or saving to MongoDB", e);
         }
     }
-    // UPDATED: ignore expired keys; keep distinct; hard-cap 30
-public List<String> getInstrumentKeysForLiveSubscription() {
+    public List<String> getInstrumentKeysForLiveSubscription() {
     long now = System.currentTimeMillis();
     List<NseInstrument> instruments = mongoTemplate.findAll(NseInstrument.class, "filtered_nifty_premiums");
 
     List<String> keys = instruments.stream()
-            .filter(i -> i.getExpiry() != null && i.getExpiry() > now) // drop stale/expired
+            .filter(i -> i.getExpiry() > now)          // expiry is long primitive
             .map(NseInstrument::getInstrument_key)
             .filter(Objects::nonNull)
             .distinct()
@@ -343,14 +344,13 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
                 }
             });
 }
-// NEW: Detect the current-week (nearest future) expiry and refresh nse_instruments
 public void refreshNiftyOptionsCurrentWeek() {
     log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
     try {
         File jsonFile = new File("src/main/resources/data/NSE.json");
         List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
 
-        // normalize (defensive)
+        // normalize
         for (NseInstrument i : all) {
             if (i.getName() != null) i.setName(i.getName().trim());
             if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
@@ -383,8 +383,8 @@ private long detectCurrentWeekExpiryEpoch(List<NseInstrument> all) {
             .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
             .filter(i -> "NSE_FO".equals(i.getSegment()))
             .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
-            .map(NseInstrument::getExpiry)
-            .filter(exp -> exp != null && exp >= now)
+            .mapToLong(NseInstrument::getExpiry)   // primitive long, no nulls
+            .filter(exp -> exp >= now)
             .sorted()
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("No future expiry found in NSE.json"));
