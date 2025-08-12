@@ -155,9 +155,9 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
     List<NseInstrument> pool = mongoTemplate.find(q, NseInstrument.class, "nse_instruments");
 
     // ✅ Explicit types in comparator to avoid Object inference
-    Comparator<NseInstrument> byDistance = Comparator
-            .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
-            .thenComparingDouble(i -> i.getStrikePrice().doubleValue());
+Comparator<NseInstrument> byDistance = Comparator
+        .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
+        .thenComparingDouble(NseInstrument::getStrikePrice);
 
     List<NseInstrument> ce = pool.stream()
             .filter(i -> "CE".equals(i.getInstrumentType()))
