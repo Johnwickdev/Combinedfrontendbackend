@@ -85,7 +85,7 @@ public void initAutoStart() {
                 nseInstrumentService.purgeExpiredOptionDocs();
 
                 // 2) load only CURRENT-WEEK CE/PE into nse_instruments (IST day window)
-                nseInstrumentService.refreshNiftyOptionsCurrentWeekByLocalRule();
+                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
 
                 // 3) save all NIFTY FUTURES (your existing method)
                 nseInstrumentService.saveNiftyFuturesToMongo();
