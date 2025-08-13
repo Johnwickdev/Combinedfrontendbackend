@@ -419,9 +419,32 @@ private long istEndOfDayMs(LocalDate d) {
 public void refreshNiftyOptionsCurrentWeekByLocalRule() {
     log.info("🔁 Refreshing nse_instruments by IST cycle (Fri→Wed)...");
     try {
+        // 1) Load JSON
         File jsonFile = new File("src/main/resources/data/NSE.json");
-        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
+        List<NseInstrument> all = mapper.readValue(jsonFile, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+        log.info("📦 Loaded {} rows from NSE.json (path={})", all.size(), jsonFile.getAbsolutePath());
 
+        // 2) Quick expiry stats from file (before any filtering)
+        if (!all.isEmpty()) {
+            long minExp = all.stream().mapToLong(NseInstrument::getExpiry).min().orElse(Long.MAX_VALUE);
+            long maxExp = all.stream().mapToLong(NseInstrument::getExpiry).max().orElse(Long.MIN_VALUE);
+            log.info("🗓️ File expiry range (IST): {} .. {}",
+                    formatIstDateTime(minExp), formatIstDateTime(maxExp));
+
+            var byDay = all.stream().collect(
+                    java.util.stream.Collectors.groupingBy(
+                            i -> Instant.ofEpochMilli(i.getExpiry()).atZone(IST).toLocalDate(),
+                            java.util.stream.Collectors.counting()
+                    )
+            );
+            log.info("📊 Expiry counts by IST day (top 7):");
+            byDay.entrySet().stream()
+                    .sorted(java.util.Map.Entry.<java.time.LocalDate, Long>comparingByValue().reversed())
+                    .limit(7)
+                    .forEach(e -> log.info("   • {}  → {} instruments", e.getKey(), e.getValue()));
+        }
+
+        // 3) Normalize strings (whitespace in dumps can break equals())
         for (NseInstrument i : all) {
             if (i.getName() != null) i.setName(i.getName().trim());
             if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
@@ -429,29 +452,73 @@ public void refreshNiftyOptionsCurrentWeekByLocalRule() {
             if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
         }
 
+        // 4) Determine THIS cycle’s Wednesday in IST and the strict [start, end) window
         LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
         long dayStart = istStartOfDayMs(targetWed);
         long dayEnd   = istEndOfDayMs(targetWed);
+        log.info("📅 Target cycle Wednesday (IST) = {} | window [{} .. {})",
+                targetWed, formatIstDateTime(dayStart), formatIstDateTime(dayEnd));
 
-        List<NseInstrument> currentWeek = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
-                .filter(i -> "NSE_FO".equals(i.getSegment()))
-                .filter(i -> {
-                    String t = i.getInstrumentType();
-                    return "CE".equals(t) || "PE".equals(t);
-                })
-                // strict IST date window match (prevents “31 JUL 25” leaks)
-                .filter(i -> i.getExpiry() >= dayStart && i.getExpiry() < dayEnd)
-                .toList();
+        // 5) Step-by-step filter with counters (to explain every drop reason)
+        int keep = 0, dropUnderlying = 0, dropSegment = 0, dropType = 0, dropExpiryWindow = 0;
+        List<NseInstrument> currentWeek = new java.util.ArrayList<>();
+        List<NseInstrument> sampleOutOfWindow = new java.util.ArrayList<>();
 
+        for (NseInstrument i : all) {
+            if (!"NSE_INDEX|Nifty 50".equals(i.getUnderlying_key())) { dropUnderlying++; continue; }
+            if (!"NSE_FO".equals(i.getSegment())) { dropSegment++; continue; }
+            String t = i.getInstrumentType();
+            if (!"CE".equals(t) && !"PE".equals(t)) { dropType++; continue; }
+            long exp = i.getExpiry();
+            if (exp < dayStart || exp >= dayEnd) {
+                dropExpiryWindow++;
+                if (sampleOutOfWindow.size() < 3) sampleOutOfWindow.add(i);
+                continue;
+            }
+            currentWeek.add(i);
+            keep++;
+        }
+
+        log.info("🔎 Filter summary → keep={}, drop: underlying={}, segment={}, type={}, expiryWindow={}",
+                keep, dropUnderlying, dropSegment, dropType, dropExpiryWindow);
+
+        if (!sampleOutOfWindow.isEmpty()) {
+            log.warn("⚠️ Examples out-of-window ({} of {}):",
+                    sampleOutOfWindow.size(), dropExpiryWindow);
+            for (NseInstrument s : sampleOutOfWindow) {
+                log.warn("   ⏱️ trading_symbol='{}' | expiry(IST)={} | epoch={}",
+                        s.getTrading_symbol(),
+                        formatIstDateTime(s.getExpiry()),
+                        s.getExpiry());
+            }
+        }
+
+        // 6) If nothing matched, warn loudly and bail (don’t nuke collection)
+        if (currentWeek.isEmpty()) {
+            log.error("❌ No CURRENT-WEEK options matched for Wed={} within [{} .. {}). " +
+                      "Likely NSE.json doesn’t contain that day’s expiry epoch or the IST window is wrong.",
+                      targetWed, formatIstDateTime(dayStart), formatIstDateTime(dayEnd));
+            return;
+        }
+
+        // 7) Stats on the result set
+        long ceCount = currentWeek.stream().filter(x -> "CE".equals(x.getInstrumentType())).count();
+        long peCount = currentWeek.stream().filter(x -> "PE".equals(x.getInstrumentType())).count();
+        double minStrike = currentWeek.stream().mapToDouble(NseInstrument::getStrikePrice).min().orElse(Double.NaN);
+        double maxStrike = currentWeek.stream().mapToDouble(NseInstrument::getStrikePrice).max().orElse(Double.NaN);
+        log.info("✅ CURRENT-WEEK universe ready: total={}, CE={}, PE={}, strikeRange=[{}, {}]",
+                currentWeek.size(), ceCount, peCount, minStrike, maxStrike);
+
+        // 8) Replace collection
         mongoTemplate.dropCollection("nse_instruments");
         mongoTemplate.insert(currentWeek, "nse_instruments");
+        log.info("💾 nse_instruments saved for Wed={} ({} docs)", targetWed, currentWeek.size());
 
-        log.info("✅ nse_instruments saved for Wed={} ({} docs)", targetWed, currentWeek.size());
     } catch (Exception e) {
         log.error("❌ Failed refreshing by local rule", e);
     }
 }
+
 public void purgeExpiredOptionDocs() {
     long now = System.currentTimeMillis();
     Query expired = new Query(Criteria.where("expiry").lt(now));
