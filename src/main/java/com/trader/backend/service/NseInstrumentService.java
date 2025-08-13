@@ -458,4 +458,144 @@ public void purgeExpiredOptionDocs() {
     log.info("🧹 Purged expired: nse_instruments={}, filtered_nifty_premiums={}", del1, del2);
 }
 
+private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+
+// NEW: choose current‑month FUT key (fallback to nearest)
+public Optional<String> getCurrentMonthNiftyFutKey() {
+    List<NseInstrument> futs = mongoTemplate.findAll(NseInstrument.class, "nifty_futures");
+    if (futs == null || futs.isEmpty()) return Optional.empty();
+
+    ZonedDateTime now = ZonedDateTime.now(IST);
+    int y = now.getYear(), m = now.getMonthValue();
+
+    return futs.stream()
+            .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+            .filter(f -> {
+                LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
+                return d.getYear() == y && d.getMonthValue() == m;
+            })
+            .map(NseInstrument::getInstrument_key)
+            .findFirst()
+            .or(() -> futs.stream()
+                    .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+                    .map(NseInstrument::getInstrument_key)
+                    .findFirst());
+}
+// NEW: returns [startMs, endMs] for the nearest future option expiry DATE present in NSE.json (IST)
+private long[] nearestOptionExpiryDayWindowFromJsonIST() {
+    try {
+        File jsonFile = new File("src/main/resources/data/NSE.json");
+        List<NseInstrument> all = mapper.readValue(jsonFile, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+
+        long now = System.currentTimeMillis();
+        List<LocalDate> days = all.stream()
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equalsIgnoreCase(t) || "PE".equalsIgnoreCase(t);
+                })
+                .map(i -> Instant.ofEpochMilli(i.getExpiry()).atZone(IST).toLocalDate())
+                .distinct()
+                .sorted()
+                .toList();
+
+        LocalDate target = days.stream()
+                .filter(d -> d.atStartOfDay(IST).toInstant().toEpochMilli() >= now)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No future option expiry date in NSE.json"));
+
+        long start = target.atStartOfDay(IST).toInstant().toEpochMilli();
+        long end   = target.plusDays(1).atStartOfDay(IST).toInstant().toEpochMilli();
+        log.info("🎯 Nearest option expiry date (IST) from JSON: {} ({}..{})", target, start, end);
+        return new long[]{start, end};
+    } catch (Exception e) {
+        throw new RuntimeException("nearestOptionExpiryDayWindowFromJsonIST failed", e);
+    }
+}
+// NEW: compute 10 CE + 10 PE for nearest expiry day and save -> filtered_nifty_premiums
+public void filterTenTenAroundLtpAndSave(double niftyLtp) {
+    long[] win = nearestOptionExpiryDayWindowFromJsonIST();
+    long start = win[0], end = win[1];
+
+    // Try DB universe for this day; fallback to JSON if empty
+    var q = new Query(Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50")
+            .and("segment").is("NSE_FO")
+            .and("instrumentType").in("CE","PE")
+            .and("expiry").gte(start).lt(end));
+    List<NseInstrument> universe = mongoTemplate.find(q, NseInstrument.class, "nse_instruments");
+
+    if (universe.isEmpty()) {
+        try {
+            File jsonFile = new File("src/main/resources/data/NSE.json");
+            List<NseInstrument> all = mapper.readValue(jsonFile, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            for (NseInstrument i : all) {
+                if (i.getName()!=null) i.setName(i.getName().trim());
+                if (i.getSegment()!=null) i.setSegment(i.getSegment().trim());
+                if (i.getInstrumentType()!=null) i.setInstrumentType(i.getInstrumentType().trim());
+                if (i.getUnderlying_key()!=null) i.setUnderlying_key(i.getUnderlying_key().trim());
+            }
+            universe = all.stream()
+                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                    .filter(i -> "NSE_FO".equals(i.getSegment()))
+                    .filter(i -> {
+                        String t = i.getInstrumentType();
+                        return "CE".equals(t) || "PE".equals(t);
+                    })
+                    .filter(i -> i.getExpiry()>=start && i.getExpiry()<end)
+                    .toList();
+
+            mongoTemplate.dropCollection("nse_instruments");
+            mongoTemplate.insert(universe, "nse_instruments");
+            log.info("ℹ️ Refreshed nse_instruments for nearest expiry day ({} docs)", universe.size());
+        } catch (Exception e) {
+            log.error("❌ JSON fallback failed", e);
+            return;
+        }
+    }
+
+    int atm = (int) (Math.round(niftyLtp / 50.0) * 50);
+
+    // CE buckets (ITM below ATM, OTM above)
+    var ceATM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()==atm).toList();
+    var ceITM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()<atm)
+            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice).reversed()).toList();
+    var ceOTM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()>atm)
+            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice)).toList();
+
+    // PE buckets (ITM above ATM, OTM below)
+    var peATM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()==atm).toList();
+    var peITM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()>atm)
+            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice)).toList();
+    var peOTM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()<atm)
+            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice).reversed()).toList();
+
+    List<NseInstrument> pick = new ArrayList<>(20);
+
+    // CE: ATM1 + ITM2 + OTM7
+    if (!ceATM.isEmpty()) pick.add(ceATM.get(0));
+    pick.addAll(ceITM.stream().limit(2).toList());
+    pick.addAll(ceOTM.stream().limit(7).toList());
+
+    // PE: ATM1 + ITM2 + OTM7
+    if (!peATM.isEmpty()) pick.add(peATM.get(0));
+    pick.addAll(peITM.stream().limit(2).toList());
+    pick.addAll(peOTM.stream().limit(7).toList());
+
+    // de‑dupe by instrument_key, keep order
+    LinkedHashMap<String,NseInstrument> uniq = new LinkedHashMap<>();
+    for (NseInstrument i : pick) {
+        if (i.getInstrument_key()!=null) uniq.putIfAbsent(i.getInstrument_key(), i);
+    }
+    List<NseInstrument> finalSel = new ArrayList<>(uniq.values());
+
+    long ceCount = finalSel.stream().filter(i -> "CE".equals(i.getInstrumentType())).count();
+    long peCount = finalSel.stream().filter(i -> "PE".equals(i.getInstrumentType())).count();
+    log.info("🎯 Ten+Ten selection: CE={} PE={} (target 10+10), ATM={}, window=[{}..{}]", ceCount, peCount, atm, start, end);
+
+    mongoTemplate.dropCollection("filtered_nifty_premiums");
+    mongoTemplate.insert(finalSel, "filtered_nifty_premiums");
+    log.info("✅ Stored {} instruments to filtered_nifty_premiums", finalSel.size());
+}
 }
