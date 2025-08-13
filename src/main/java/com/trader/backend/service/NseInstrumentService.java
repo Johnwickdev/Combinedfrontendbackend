@@ -55,6 +55,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class NseInstrumentService {
+// at top of the class body:
+private static final org.slf4j.Logger log =
+        org.slf4j.LoggerFactory.getLogger(LiveFeedService.class);
     private final WebClient webClient;
     private final UpstoxAuthService upstoxAuthService;
     private final NseInstrumentRepository repo;
@@ -394,7 +397,7 @@ private long detectCurrentWeekExpiryEpoch(List<NseInstrument> all) {
             .findFirst()
             .orElseThrow(() -> new IllegalStateException("No future expiry found in NSE.json"));
 }
-    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    //private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 private static final LocalTime EXPIRY_CUTOFF = LocalTime.of(15, 30); // 3:30 PM IST
 
 private LocalDate resolveCurrentCycleExpiryWednesdayIST() {
