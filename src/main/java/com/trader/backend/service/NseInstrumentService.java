@@ -131,86 +131,88 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
         log.error("❌ Error during CE/PE strike filtering and saving", e);
     }
 }
-  public void filterStrikesAroundLtp(double niftyLtp) {
-    // make sure nse_instruments has the right week loaded
-    int universeCount = ensureWeeklyUniverseLoaded();
-    if (universeCount == 0) {
-        log.error("❌ Aborting CE/PE selection because nse_instruments is still empty.");
-        return;
+  /**
+ * Select 10 CE + 10 PE around base(=round(ltp/50)*50) for the ACTIVE expiry stored in nse_instruments.
+ * If the universe is empty, we auto-refresh it from NSE.json by nearest expiry.
+ */
+public void filterStrikesAroundLtp(double niftyLtp) {
+    log.info("🔎 Filtering CE/PE around LTP={} (step=50) for currently loaded expiry in nse_instruments", niftyLtp);
+
+    // 0) Ensure universe exists in DB; if not, refresh from JSON
+    Query existsQ = new Query(Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50")
+            .and("segment").is("NSE_FO")
+            .and("instrumentType").in("CE", "PE"));
+    long count = mongoTemplate.count(existsQ, "nse_instruments");
+    if (count == 0) {
+        log.warn("⚠️ nse_instruments is empty. Refreshing from JSON by nearest expiry...");
+        refreshNiftyOptionsByNearestExpiryFromJson();
+        count = mongoTemplate.count(existsQ, "nse_instruments");
+        if (count == 0) {
+            log.error("❌ Still empty after refresh. Aborting CE/PE filtering.");
+            return;
+        }
     }
 
-    LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
-    long dayStart = istStartOfDayMs(targetWed);
-    long dayEnd   = istEndOfDayMs(targetWed);
-    log.info("🔍 Filtering around LTP={} for cycle Wed={} (IST) window [{}..{})",
-            niftyLtp, targetWed, formatIstDateTime(dayStart), formatIstDateTime(dayEnd));
+    // 1) Read active expiry from nse_instruments (the single expiry we just loaded)
+    List<Long> expiries = mongoTemplate.findDistinct(new Query(), "expiry", "nse_instruments", Long.class);
+    if (expiries.isEmpty()) {
+        log.error("❌ No expiry found in nse_instruments after refresh.");
+        return;
+    }
+    long activeExpiry = expiries.stream().sorted().findFirst().get();
+    log.info("🗓️ Active expiry epoch={} (ms) will be used for selection", activeExpiry);
 
+    // 2) Build strike set around LTP (ATM, 1 ITM, rest OTM – you can tweak counts)
     double base = Math.round(niftyLtp / 50.0) * 50;
-
-    // build a broad ladder (+/- 30 strikes of 50pts)
+    // We'll allow a window of 30 strikes each way, but we will eventually limit to 10/side.
     Set<Integer> strikeSet = new LinkedHashSet<>();
-    for (int i = -30; i <= 30; i++) strikeSet.add((int)(base + i*50));
+    for (int i = -30; i <= 30; i++) strikeSet.add((int)(base + i * 50));
 
-    Query q = new Query(new Criteria().andOperator(
-            Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
-            Criteria.where("segment").is("NSE_FO"),
-            Criteria.where("instrumentType").in("CE", "PE"),
-            Criteria.where("strikePrice").in(strikeSet),
-            Criteria.where("expiry").gte(dayStart).lt(dayEnd)
-    ));
-
+    // 3) Pull candidates only for that expiry
+    Query q = new Query(Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50")
+            .and("segment").is("NSE_FO")
+            .and("instrumentType").in("CE", "PE")
+            .and("expiry").is(activeExpiry)
+            .and("strikePrice").in(strikeSet));
     List<NseInstrument> pool = mongoTemplate.find(q, NseInstrument.class, "nse_instruments");
-    log.info("🧮 Candidates in window for base={} → {} rows ({} unique strikes)",
-            base, pool.size(),
-            pool.stream().map(NseInstrument::getStrikePrice).distinct().count());
+    log.info("📊 Candidates pool size={} for base={}, expiry={}", pool.size(), base, activeExpiry);
 
+    // 4) Sort by distance from base, then by strike
     Comparator<NseInstrument> byDistance = Comparator
             .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
             .thenComparingDouble(NseInstrument::getStrikePrice);
 
-    List<NseInstrument> ce = pool.stream()
+    List<NseInstrument> ceSorted = pool.stream()
             .filter(i -> "CE".equals(i.getInstrumentType()))
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
-                    Collectors.toMap(
-                            NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
+                    Collectors.toMap(NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
                     m -> new ArrayList<>(m.values())
             ));
-
-    List<NseInstrument> pe = pool.stream()
+    List<NseInstrument> peSorted = pool.stream()
             .filter(i -> "PE".equals(i.getInstrumentType()))
             .sorted(byDistance)
             .collect(Collectors.collectingAndThen(
-                    Collectors.toMap(
-                            NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
+                    Collectors.toMap(NseInstrument::getStrikePrice, i -> i, (a,b)->a, LinkedHashMap::new),
                     m -> new ArrayList<>(m.values())
             ));
 
+    // 5) Take 10 + 10 (adjust if you want 15 + 15)
+    int CE_COUNT = 10, PE_COUNT = 10;
     List<NseInstrument> selected = new ArrayList<>();
-    selected.addAll(ce.stream().limit(15).toList());
-    selected.addAll(pe.stream().limit(15).toList());
+    selected.addAll(ceSorted.stream().limit(CE_COUNT).toList());
+    selected.addAll(peSorted.stream().limit(PE_COUNT).toList());
 
     if (selected.isEmpty()) {
-        log.warn("⚠️ No instruments selected for filtered_nifty_premiums (Wed={}). poolSize={}", targetWed, pool.size());
+        log.warn("⚠️ No instruments selected for filtered_nifty_premiums (expiry={}).", activeExpiry);
         return;
     }
 
+    // 6) Save selection to filtered_nifty_premiums
     mongoTemplate.dropCollection("filtered_nifty_premiums");
     mongoTemplate.insert(selected, "filtered_nifty_premiums");
-
-    log.info("✅ Saved {} ({} CE + {} PE) into filtered_nifty_premiums for Wed={}",
-            selected.size(),
-            Math.min(15, ce.size()),
-            Math.min(15, pe.size()),
-            targetWed);
-
-    // print the keys we'll subscribe to
-    selected.stream()
-            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice)
-                    .thenComparing(NseInstrument::getInstrumentType))
-            .limit(10)
-            .forEach(i -> log.info("   🔑 {} {} {} | key={}",
-                    i.getTrading_symbol(), i.getInstrumentType(), i.getStrikePrice(), i.getInstrument_key()));
+    log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
+            selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
 }
 
     public void saveAllNiftyOptionsFromJson() {
@@ -430,106 +432,55 @@ private long istStartOfDayMs(LocalDate d) {
 private long istEndOfDayMs(LocalDate d) {
     return d.plusDays(1).atStartOfDay(IST).toInstant().toEpochMilli();
 }
-public void refreshNiftyOptionsCurrentWeekByLocalRule() {
-    log.info("🔁 Refreshing nse_instruments by IST cycle (Fri→Wed)...");
+/**
+ * Load CURRENT-CYCLE NIFTY CE/PE into nse_instruments using the nearest future expiry found in NSE.json.
+ * No weekday heuristics. We trust the per-row "expiry" epoch.
+ */
+public void refreshNiftyOptionsByNearestExpiryFromJson() {
+    log.info("🔁 Refreshing nse_instruments by nearest future expiry from NSE.json (NIFTY CE/PE)...");
     try {
-        // 1) Load JSON
         File jsonFile = new File("src/main/resources/data/NSE.json");
-        List<NseInstrument> all = mapper.readValue(jsonFile, new com.fasterxml.jackson.core.type.TypeReference<>() {});
-        log.info("📦 Loaded {} rows from NSE.json (path={})", all.size(), jsonFile.getAbsolutePath());
+        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
+        all.forEach(this::normalizeInstrument);
 
-        // 2) Quick expiry stats from file (before any filtering)
-        if (!all.isEmpty()) {
-            long minExp = all.stream().mapToLong(NseInstrument::getExpiry).min().orElse(Long.MAX_VALUE);
-            long maxExp = all.stream().mapToLong(NseInstrument::getExpiry).max().orElse(Long.MIN_VALUE);
-            log.info("🗓️ File expiry range (IST): {} .. {}",
-                    formatIstDateTime(minExp), formatIstDateTime(maxExp));
+        long now = System.currentTimeMillis();
 
-            var byDay = all.stream().collect(
-                    java.util.stream.Collectors.groupingBy(
-                            i -> Instant.ofEpochMilli(i.getExpiry()).atZone(IST).toLocalDate(),
-                            java.util.stream.Collectors.counting()
-                    )
-            );
-            log.info("📊 Expiry counts by IST day (top 7):");
-            byDay.entrySet().stream()
-                    .sorted(java.util.Map.Entry.<java.time.LocalDate, Long>comparingByValue().reversed())
-                    .limit(7)
-                    .forEach(e -> log.info("   • {}  → {} instruments", e.getKey(), e.getValue()));
-        }
+        // 1) Find nearest future expiry among NIFTY CE/PE contracts
+        OptionalLong nearestExpiryOpt = all.stream()
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                .mapToLong(NseInstrument::getExpiry)
+                .filter(exp -> exp >= now)
+                .min();
 
-        // 3) Normalize strings (whitespace in dumps can break equals())
-        for (NseInstrument i : all) {
-            if (i.getName() != null) i.setName(i.getName().trim());
-            if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
-            if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
-        }
-
-        // 4) Determine THIS cycle’s Wednesday in IST and the strict [start, end) window
-        LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
-        long dayStart = istStartOfDayMs(targetWed);
-        long dayEnd   = istEndOfDayMs(targetWed);
-        log.info("📅 Target cycle Wednesday (IST) = {} | window [{} .. {})",
-                targetWed, formatIstDateTime(dayStart), formatIstDateTime(dayEnd));
-
-        // 5) Step-by-step filter with counters (to explain every drop reason)
-        int keep = 0, dropUnderlying = 0, dropSegment = 0, dropType = 0, dropExpiryWindow = 0;
-        List<NseInstrument> currentWeek = new java.util.ArrayList<>();
-        List<NseInstrument> sampleOutOfWindow = new java.util.ArrayList<>();
-
-        for (NseInstrument i : all) {
-            if (!"NSE_INDEX|Nifty 50".equals(i.getUnderlying_key())) { dropUnderlying++; continue; }
-            if (!"NSE_FO".equals(i.getSegment())) { dropSegment++; continue; }
-            String t = i.getInstrumentType();
-            if (!"CE".equals(t) && !"PE".equals(t)) { dropType++; continue; }
-            long exp = i.getExpiry();
-            if (exp < dayStart || exp >= dayEnd) {
-                dropExpiryWindow++;
-                if (sampleOutOfWindow.size() < 3) sampleOutOfWindow.add(i);
-                continue;
-            }
-            currentWeek.add(i);
-            keep++;
-        }
-
-        log.info("🔎 Filter summary → keep={}, drop: underlying={}, segment={}, type={}, expiryWindow={}",
-                keep, dropUnderlying, dropSegment, dropType, dropExpiryWindow);
-
-        if (!sampleOutOfWindow.isEmpty()) {
-            log.warn("⚠️ Examples out-of-window ({} of {}):",
-                    sampleOutOfWindow.size(), dropExpiryWindow);
-            for (NseInstrument s : sampleOutOfWindow) {
-                log.warn("   ⏱️ trading_symbol='{}' | expiry(IST)={} | epoch={}",
-                        s.getTrading_symbol(),
-                        formatIstDateTime(s.getExpiry()),
-                        s.getExpiry());
-            }
-        }
-
-        // 6) If nothing matched, warn loudly and bail (don’t nuke collection)
-        if (currentWeek.isEmpty()) {
-            log.error("❌ No CURRENT-WEEK options matched for Wed={} within [{} .. {}). " +
-                      "Likely NSE.json doesn’t contain that day’s expiry epoch or the IST window is wrong.",
-                      targetWed, formatIstDateTime(dayStart), formatIstDateTime(dayEnd));
+        if (nearestExpiryOpt.isEmpty()) {
+            log.warn("⚠️ No future NIFTY CE/PE expiry found in NSE.json.");
             return;
         }
+        long targetExpiry = nearestExpiryOpt.getAsLong();
+        log.info("🗓️ Selected nearest expiry epoch={} ({} docs will be matched)", targetExpiry, 
+                all.stream().filter(i -> i.getExpiry() == targetExpiry).count());
 
-        // 7) Stats on the result set
-        long ceCount = currentWeek.stream().filter(x -> "CE".equals(x.getInstrumentType())).count();
-        long peCount = currentWeek.stream().filter(x -> "PE".equals(x.getInstrumentType())).count();
-        double minStrike = currentWeek.stream().mapToDouble(NseInstrument::getStrikePrice).min().orElse(Double.NaN);
-        double maxStrike = currentWeek.stream().mapToDouble(NseInstrument::getStrikePrice).max().orElse(Double.NaN);
-        log.info("✅ CURRENT-WEEK universe ready: total={}, CE={}, PE={}, strikeRange=[{}, {}]",
-                currentWeek.size(), ceCount, peCount, minStrike, maxStrike);
+        // 2) Keep only that expiry
+        List<NseInstrument> currentCycle = all.stream()
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                .filter(i -> i.getExpiry() == targetExpiry)
+                .toList();
 
-        // 8) Replace collection
         mongoTemplate.dropCollection("nse_instruments");
-        mongoTemplate.insert(currentWeek, "nse_instruments");
-        log.info("💾 nse_instruments saved for Wed={} ({} docs)", targetWed, currentWeek.size());
-
+        mongoTemplate.insert(currentCycle, "nse_instruments");
+        log.info("✅ nse_instruments refreshed: {} docs for expiry={}", currentCycle.size(), targetExpiry);
     } catch (Exception e) {
-        log.error("❌ Failed refreshing by local rule", e);
+        log.error("❌ Failed refreshing nse_instruments by nearest expiry", e);
     }
 }
 
@@ -714,7 +665,7 @@ public int ensureWeeklyUniverseLoaded() {
     }
 
     log.warn("⚠️ nse_instruments empty for Wed={} — attempting refresh by local rule…", targetWed);
-    refreshNiftyOptionsCurrentWeekByLocalRule();
+    refreshNiftyOptionsByNearestExpiryFromJson();
 
     // re-count
     existing = mongoTemplate.count(cntQ, "nse_instruments");
@@ -788,5 +739,17 @@ public int ensureWeeklyUniverseLoaded() {
         log.error("❌ ensureWeeklyUniverseLoaded fallback failed", e);
         return 0;
     }
+}
+// ==== Epoch + normalize helpers (ADD ONCE) ====
+private static boolean isMillis(long v) { return v >= 1_000_000_000_000L; }
+private static long normalizeEpoch(long raw) { return raw <= 0 ? 0L : (isMillis(raw) ? raw : raw * 1000L); }
+
+private void normalizeInstrument(NseInstrument i) {
+    if (i.getName() != null) i.setName(i.getName().trim());
+    if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
+    if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
+    if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+    // normalize expiry to ms
+    i.setExpiry(normalizeEpoch(i.getExpiry()));
 }
 }
