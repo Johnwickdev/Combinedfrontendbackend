@@ -82,7 +82,7 @@ public ResponseEntity<String> autoStreamWithLtpAndSubscribe() {
     @PostMapping("/refresh-current-week")
 public ResponseEntity<String> refreshCurrentWeek() {
     // Uses IST Fri→Wed rule to keep only this Wednesday’s expiry in nse_instruments
-    nseInstrumentService.refreshNiftyOptionsCurrentWeekByLocalRule();
+    nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
     return ResponseEntity.ok("✅ Refreshed nse_instruments for THIS WEEK (Fri→Wed IST)");
 }
 
