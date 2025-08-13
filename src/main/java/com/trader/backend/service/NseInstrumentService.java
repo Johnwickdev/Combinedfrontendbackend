@@ -668,4 +668,11 @@ public void filterTenTenAroundLtpAndSave(double niftyLtp) {
     mongoTemplate.insert(finalSel, "filtered_nifty_premiums");
     log.info("✅ Stored {} instruments to filtered_nifty_premiums", finalSel.size());
 }
+private String formatIstDateTime(long epochMs) {
+    try {
+        return Instant.ofEpochMilli(epochMs).atZone(IST).toLocalDateTime().toString() + " IST";
+    } catch (Exception e) {
+        return String.valueOf(epochMs);
+    }
+}
 }
