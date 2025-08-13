@@ -69,40 +69,36 @@ private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
     }
 
 
-   @PostConstruct
-   void connect() {
-       Mono.defer(() ->
-                       // 1) make sure token is valid, then get WS URL
-                       auth.ensureValidToken()
-                               .then(fetchWebSocketUrl())
-               )
-               .flatMapMany(this::openWebSocket)                // → Flux<JsonNode>
-               .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
-               .subscribe(
-                       json -> {
-                           // 2) write to Influx
-                           writeApi.writePoint(toPoint(json));
-                           // 3) still push it into your sink for downstream subscribers
-                           sink.tryEmitNext(json);
-                       },
-                       error -> log.error("WebSocket feed failed:", error)
-               );
-       // 2) Option‐chain subscription (exact same pattern):
-       Mono.defer(() ->
-                       auth.ensureValidToken()
-                               .then(fetchWebSocketUrl())
-               )
-               .flatMapMany(this::openOptionWebSocket)
-               .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
-               .doOnError(e -> System.err.println("option‐feed‐err: " + e.getMessage()))
-               .subscribe(ignored -> { /* no need to re‐emit into the same sink */ });
-   }
+  @PostConstruct
+public void initAutoStart() {
+    log.info("🚀 Starting auto init sequence...");
 
+    // make sure token is valid before any network calls
+    auth.ensureValidToken()
+        .doOnSuccess(v -> {
+            try {
+                // 1) clean up old data
+                nseInstrumentService.purgeExpiredOptionDocs();
+
+                // 2) load only CURRENT-WEEK CE/PE into nse_instruments (IST day window)
+                nseInstrumentService.refreshNiftyOptionsCurrentWeekByLocalRule();
+
+                // 3) save all NIFTY FUTURES (your existing method)
+                nseInstrumentService.saveNiftyFuturesToMongo();
+
+                // 4) start FUT stream → first LTP → filterStrikesAroundLtp() → save 15+15 → subscribe CE/PE
+                streamNiftyFutAndTriggerCEPE();
+            } catch (Exception e) {
+                log.error("❌ init sequence failed", e);
+            }
+        })
+        .doOnError(e -> log.error("❌ ensureValidToken failed at startup", e))
+        .subscribe();
+}
 
     /**
      * STEP 6.1: fetch the actual WS URL (handles redirect or JSON token)
      **/
-
     public Mono<String> fetchWebSocketUrl() {
         log.info("⟳ entering fetchWebSocketUrl(), current token={}", auth.currentToken());
         return WebClient.builder()
