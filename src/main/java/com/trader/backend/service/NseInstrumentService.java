@@ -55,6 +55,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class NseInstrumentService {
+    @Lazy
+    private final LiveFeedService liveFeedService; // <-- add (Lazy avoids circular dependency)
 // at top of the class body:
 private static final org.slf4j.Logger log =
         org.slf4j.LoggerFactory.getLogger(LiveFeedService.class);
@@ -213,6 +215,13 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     mongoTemplate.insert(selected, "filtered_nifty_premiums");
     log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
             selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
+// 🔔 AUTO‑SUBSCRIBE to these 20 keys immediately
+try {
+    liveFeedService.streamFilteredNiftyOptions();
+    log.info("📡 Auto‑started live stream for filtered CE/PE ({} keys).", selected.size());
+} catch (Exception ex) {
+    log.warn("⚠️ Could not start filtered options stream (you can still hit /api/nse/start-filtered-stream): {}", ex.getMessage());
+}
 }
 
     public void saveAllNiftyOptionsFromJson() {
