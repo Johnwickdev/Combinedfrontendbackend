@@ -50,6 +50,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import com.trader.backend.entity.NseInstrument;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
+import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 
 
 @Service
@@ -644,5 +646,13 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
     ).subscribe();
 
     return local.asFlux();
+}
+
+
+@EventListener
+public void onFilteredPremiumsUpdated(FilteredPremiumsUpdatedEvent e) {
+    log.info("📬 Filtered premiums updated: {} docs for expiry={} → (re)subscribing…",
+            e.getCount(), e.getExpiryEpochMs());
+    streamFilteredNiftyOptions();  // this already builds the sub-frame from Mongo and subscribes
 }
 }
