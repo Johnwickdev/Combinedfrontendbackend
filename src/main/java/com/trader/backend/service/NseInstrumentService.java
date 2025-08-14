@@ -65,7 +65,6 @@ import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 public class NseInstrumentService {
     // in class fields:
     private final ApplicationEventPublisher publisher;
-    private final LiveFeedService liveFeedService; // <-- add (Lazy avoids circular dependency)
 
     private final WebClient webClient;
     private final UpstoxAuthService upstoxAuthService;
