@@ -52,13 +52,19 @@ import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.springframework.context.annotation.Lazy;
+// imports to add at the top of NseInstrumentService
+import org.springframework.context.ApplicationEventPublisher;
+import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
+
+
 
 
 @RequiredArgsConstructor
 @Slf4j
 @Service
 public class NseInstrumentService {
-    @Lazy
+    // in class fields:
+    private final ApplicationEventPublisher publisher;
     private final LiveFeedService liveFeedService; // <-- add (Lazy avoids circular dependency)
 // at top of the class body:
 private static final org.slf4j.Logger log =
