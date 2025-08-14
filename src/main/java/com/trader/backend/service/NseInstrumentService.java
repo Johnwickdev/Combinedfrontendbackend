@@ -66,9 +66,7 @@ public class NseInstrumentService {
     // in class fields:
     private final ApplicationEventPublisher publisher;
     private final LiveFeedService liveFeedService; // <-- add (Lazy avoids circular dependency)
-// at top of the class body:
-private static final org.slf4j.Logger log =
-        org.slf4j.LoggerFactory.getLogger(LiveFeedService.class);
+
     private final WebClient webClient;
     private final UpstoxAuthService upstoxAuthService;
     private final NseInstrumentRepository repo;
@@ -131,14 +129,21 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
             .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
             .filter(i -> targetStrikes.contains(i.getStrikePrice()))
             .collect(Collectors.toList());
+mongoTemplate.dropCollection("filtered_nifty_premiums");
+mongoTemplate.insert(filtered, "filtered_nifty_premiums");
+log.info("✅ CE/PE filtering and save complete ✅");
 
-        // 💾 Save to MongoDB
-        log.info("💾 Saving {} instruments to 'filtered_nifty_premiums' collection...", filtered.size());
-        mongoTemplate.dropCollection("filtered_nifty_premiums");
-        mongoTemplate.insert(filtered, "filtered_nifty_premiums");
-        log.info("✅ CE/PE filtering and save complete ✅");
+// pick the most frequent expiry among saved docs (safety if mixed)
+long activeExpiry = filtered.stream()
+        .collect(java.util.stream.Collectors.groupingBy(NseInstrument::getExpiry, java.util.stream.Collectors.counting()))
+        .entrySet().stream()
+        .max(java.util.Map.Entry.comparingByValue())
+        .map(java.util.Map.Entry::getKey)
+        .orElseGet(() -> filtered.get(0).getExpiry());
 
-    } catch (Exception e) {
+// 🔔 Notify LiveFeedService
+publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, filtered.size()));
+          } catch (Exception e) {
         log.error("❌ Error during CE/PE strike filtering and saving", e);
     }
 }
@@ -225,12 +230,13 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
             selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
 // 🔔 AUTO‑SUBSCRIBE to these 20 keys immediately
-try {
-    liveFeedService.streamFilteredNiftyOptions();
-    log.info("📡 Auto‑started live stream for filtered CE/PE ({} keys).", selected.size());
-} catch (Exception ex) {
-    log.warn("⚠️ Could not start filtered options stream (you can still hit /api/nse/start-filtered-stream): {}", ex.getMessage());
-}
+mongoTemplate.dropCollection("filtered_nifty_premiums");
+mongoTemplate.insert(selected, "filtered_nifty_premiums");
+log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
+        selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
+
+// 🔔 Notify LiveFeedService via event (no circular dependency)
+publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, selected.size()));
 }
 
     public void saveAllNiftyOptionsFromJson() {
