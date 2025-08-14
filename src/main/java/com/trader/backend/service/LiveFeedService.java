@@ -65,7 +65,7 @@ private final NseInstrumentService nseInstrumentService;
 // Tracks currently subscribed CE/PE instruments for debug/monitoring
 private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
     private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
-
+private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
     /**
      * Exposed for your controllers to subscribe
      **/
@@ -363,21 +363,42 @@ public void initAutoStart() {
         return local.asFlux();
     }
     public void streamFilteredNiftyOptions() {
-    log.info("🚀 (re)starting live stream for filtered CE/PE from MongoDB...");
+    // Prevent duplicate WS streams for the same filtered list
+    if (!optionsStreamStarted.compareAndSet(false, true)) {
+        log.info("🔁 filtered CE/PE stream already running; keeping existing connection.");
+        return;
+    }
+
+    // Sanity check: do we have anything to subscribe to right now?
+    var initialKeys = nseInstrumentService.getInstrumentKeysForLiveSubscription();
+    if (initialKeys.isEmpty()) {
+        optionsStreamStarted.set(false);
+        log.warn("⚠️ filtered_nifty_premiums is empty — skipping option stream start for now.");
+        return;
+    }
+    log.info("🚀 (re)starting live stream for filtered CE/PE — {} keys found in Mongo.", initialKeys.size());
 
     Mono.defer(() -> auth.ensureValidToken().then(fetchWebSocketUrl()))
+        // buildFilteredSubFrame pulls the latest keys on every (re)connect
         .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, this::buildFilteredSubFrame))
         .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
         .doOnSubscribe(s -> log.info("📡 Subscribed to filtered CE/PE (auto-resub on reconnect)"))
         .doOnNext(tick -> {
             sink.tryEmitNext(tick);
-            // light log to reduce noise
             if (tick.has("feeds")) {
-                Iterator<String> it = tick.get("feeds").fieldNames();
+                var it = tick.get("feeds").fieldNames();
                 if (it.hasNext()) log.debug("⏳ tick for {}", it.next());
             }
         })
-        .doOnError(err -> log.error("❌ filtered option feed failed:", err))
+        .doOnError(err -> {
+            optionsStreamStarted.set(false); // allow a fresh start after a fatal error
+            log.error("❌ filtered option feed failed:", err);
+        })
+        .doFinally(sig -> {
+            // If the stream ever completes/cancels, allow a fresh start later
+            optionsStreamStarted.set(false);
+            log.info("🧹 filtered CE/PE stream terminated: {}", sig);
+        })
         .subscribe();
 }
 public void streamSingleInstrument(String instrumentKey) {
