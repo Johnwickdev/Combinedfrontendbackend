@@ -264,33 +264,50 @@ publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, sele
             log.error("❌ Error reading NSE.json or saving to MongoDB", e);
         }
     }
-   public List<String> getInstrumentKeysForLiveSubscription() {
-    LocalDate targetWed = resolveCurrentCycleExpiryWednesdayIST();
-    long dayStart = istStartOfDayMs(targetWed);
-    long dayEnd   = istEndOfDayMs(targetWed);
+   // NseInstrumentService.java
+public List<String> getInstrumentKeysForLiveSubscription() {
     long now = System.currentTimeMillis();
 
-    Query q = new Query(new Criteria().andOperator(
-            Criteria.where("expiry").gte(dayStart).lt(dayEnd)  // only this cycle
-    ));
-    List<NseInstrument> instruments = mongoTemplate.find(q, NseInstrument.class, "filtered_nifty_premiums");
+    // 1) What expiries are present in filtered_nifty_premiums (future only)?
+    List<Long> expiries = mongoTemplate.findDistinct(
+            new Query(Criteria.where("expiry").gte(now)),
+            "expiry",
+            "filtered_nifty_premiums",
+            Long.class
+    );
 
-    List<String> keys = instruments.stream()
-            .filter(i -> i.getExpiry() > now)
+    if (expiries.isEmpty()) {
+        log.warn("⚠️ filtered_nifty_premiums has no future expiries. Did filtering run?");
+        return List.of();
+    }
+
+    // 2) Pick the nearest future expiry actually stored (e.g., 14-Aug)
+    long targetExpiry = expiries.stream().sorted().findFirst().get();
+    var targetDayIST  = Instant.ofEpochMilli(targetExpiry).atZone(IST).toLocalDate();
+    long dayStart = istStartOfDayMs(targetDayIST);
+    long dayEnd   = istEndOfDayMs(targetDayIST);
+
+    // 3) Pull the 20 docs for that day and extract keys
+    Query q = new Query(new Criteria().andOperator(
+            Criteria.where("expiry").gte(dayStart).lt(dayEnd)
+    ));
+    List<NseInstrument> docs =
+            mongoTemplate.find(q, NseInstrument.class, "filtered_nifty_premiums");
+
+    List<String> keys = docs.stream()
             .map(NseInstrument::getInstrument_key)
             .filter(Objects::nonNull)
             .distinct()
-            .limit(30)
             .toList();
 
+    log.info("🔑 Prepared {} keys for options stream | expiryDay(IST)={} | epoch={}",
+            keys.size(), targetDayIST, targetExpiry);
+
     if (keys.isEmpty()) {
-        log.warn("⚠️ No valid keys for Wed={} (filtered_nifty_premiums).", targetWed);
-    } else {
-        log.info("✅ Keys ready for Wed={}: {}", targetWed, keys.size());
+        log.warn("⚠️ Expiry exists but no instrument keys were found in filtered_nifty_premiums.");
     }
     return keys;
 }
-
 public void saveNiftyFuturesToMongo() {
     log.info("📂 Extracting NIFTY FUTURE records from NSE.json...");
 
