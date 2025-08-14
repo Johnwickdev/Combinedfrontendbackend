@@ -49,7 +49,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import com.trader.backend.entity.NseInstrument;
-
+import org.springframework.context.annotation.Lazy;
 
 
 @Service
