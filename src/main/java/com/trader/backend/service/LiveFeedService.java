@@ -387,10 +387,20 @@ public void initAutoStart() {
         .doOnSubscribe(s -> log.info("📡 Subscribed to filtered CE/PE (auto-resub on reconnect)"))
         .doOnNext(tick -> {
             sink.tryEmitNext(tick);
-            if (tick.has("feeds")) {
-                var it = tick.get("feeds").fieldNames();
-                if (it.hasNext()) log.debug("⏳ tick for {}", it.next());
-            }
+            JsonNode feeds = tick.path("feeds");
+            feeds.fields().forEachRemaining(entry -> {
+                String instrumentKey = entry.getKey();
+                JsonNode ltpNode = entry.getValue()
+                        .path("fullFeed")
+                        .path("marketFF")
+                        .path("ltpc")
+                        .path("ltp");
+                if (!ltpNode.isMissingNode()) {
+                    log.info("📈 Option tick: {} LTP={} ", instrumentKey, ltpNode.asDouble());
+                } else {
+                    log.debug("⏳ tick for {}", instrumentKey);
+                }
+            });
         })
         .doOnError(err -> {
             optionsStreamStarted.set(false); // allow a fresh start after a fatal error
