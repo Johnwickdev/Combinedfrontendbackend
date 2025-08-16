@@ -56,7 +56,7 @@ public class NseInstrumentController {
     }
 @PostMapping("/nifty-fut-stream")
 public ResponseEntity<String> startNiftyFutStream() {
-    liveFeedService.streamNiftyFutAndTriggerFiltering();
+    liveFeedService.streamNiftyFutAndTriggerCEPE();
     return ResponseEntity.ok("📡 NIFTY FUT stream started");
 }
 @PostMapping("/save-nifty-futures")
