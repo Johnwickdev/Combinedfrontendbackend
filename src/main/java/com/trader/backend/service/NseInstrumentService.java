@@ -234,14 +234,9 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     mongoTemplate.insert(selected, "filtered_nifty_premiums");
     log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
             selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
-// 🔔 AUTO‑SUBSCRIBE to these 20 keys immediately
-mongoTemplate.dropCollection("filtered_nifty_premiums");
-mongoTemplate.insert(selected, "filtered_nifty_premiums");
-log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={}",
-        selected.size(), Math.min(CE_COUNT, ceSorted.size()), Math.min(PE_COUNT, peSorted.size()), activeExpiry);
 
-// 🔔 Notify LiveFeedService via event (no circular dependency)
-publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, selected.size()));
+    // 🔔 Notify LiveFeedService via event (no circular dependency)
+    publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, selected.size()));
 }
 
     public void saveAllNiftyOptionsFromJson() {
