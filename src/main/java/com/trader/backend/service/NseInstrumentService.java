@@ -170,9 +170,15 @@ public void filterStrikesAroundLtp(double niftyLtp) {
 
     // 1) Read active expiry from nse_instruments (the single expiry we just loaded)
     List<Long> expiries = mongoTemplate.findDistinct(new Query(), "expiry", "nse_instruments", Long.class);
-    if (expiries.isEmpty()) {
-        log.error("❌ No expiry found in nse_instruments after refresh.");
-        return;
+    if (expiries.isEmpty() || isExpiryCompleted(expiries.get(0))) {
+        long expired = expiries.isEmpty() ? -1L : expiries.get(0);
+        log.warn("⚠️ Active expiry={} is past cutoff. Refreshing from JSON...", expired);
+        refreshNiftyOptionsByNearestExpiryFromJson();
+        expiries = mongoTemplate.findDistinct(new Query(), "expiry", "nse_instruments", Long.class);
+        if (expiries.isEmpty()) {
+            log.error("❌ No expiry found in nse_instruments after refresh.");
+            return;
+        }
     }
     long activeExpiry = expiries.stream().sorted().findFirst().get();
     log.info("🗓️ Active expiry epoch={} (ms) will be used for selection", activeExpiry);
@@ -294,13 +300,20 @@ public List<String> getInstrumentKeysForLiveSubscription() {
     List<NseInstrument> docs =
             mongoTemplate.find(q, NseInstrument.class, "filtered_nifty_premiums");
 
-    List<String> keys = docs.stream()
-            .map(NseInstrument::getInstrument_key)
-            .filter(Objects::nonNull)
-            .distinct()
-            .toList();
+    List<String> keys = new ArrayList<>(
+            docs.stream()
+                .map(NseInstrument::getInstrument_key)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList()
+    );
 
-    log.info("🔑 Prepared {} keys for options stream | expiryDay(IST)={} | epoch={}",
+    // append nearest NIFTY FUT instrument key
+    nearestNiftyFutureKey().ifPresent(futKey -> {
+        if (!keys.contains(futKey)) keys.add(futKey);
+    });
+
+    log.info("🔑 Prepared {} keys for live stream | expiryDay(IST)={} | epoch={}",
             keys.size(), targetDayIST, targetExpiry);
 
     if (keys.isEmpty()) {
@@ -408,6 +421,34 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
                 }
             });
 }
+
+private void refreshNiftyFuturesIfNeeded() {
+    long now = System.currentTimeMillis();
+    Query q = new Query(Criteria.where("segment").is("NSE_FO")
+            .and("instrumentType").is("FUT")
+            .and("name").is("NIFTY")
+            .and("expiry").gt(now));
+    long count = mongoTemplate.count(q, "nifty_futures");
+    if (count == 0) {
+        log.warn("⚠️ No future NIFTY FUT contracts found. Reloading from JSON...");
+        saveNiftyFuturesToMongo();
+    }
+}
+
+private Optional<String> nearestNiftyFutureKey() {
+    refreshNiftyFuturesIfNeeded();
+    long now = System.currentTimeMillis();
+    Query q = new Query(Criteria.where("segment").is("NSE_FO")
+            .and("instrumentType").is("FUT")
+            .and("name").is("NIFTY")
+            .and("expiry").gt(now));
+    return mongoTemplate.find(q, NseInstrument.class, "nifty_futures")
+            .stream()
+            .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+            .map(NseInstrument::getInstrument_key)
+            .findFirst();
+}
+
 public void refreshNiftyOptionsCurrentWeek() {
     log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
     try {
@@ -534,6 +575,12 @@ public void purgeExpiredOptionDocs() {
 }
 
 private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+
+private boolean isExpiryCompleted(long expiryMs) {
+    LocalDate expiryDay = Instant.ofEpochMilli(expiryMs).atZone(IST).toLocalDate();
+    long cutoffMs = expiryDay.atTime(EXPIRY_CUTOFF).atZone(IST).toInstant().toEpochMilli();
+    return System.currentTimeMillis() >= cutoffMs;
+}
 
 // NEW: choose current‑month FUT key (fallback to nearest)
 public Optional<String> getCurrentMonthNiftyFutKey() {
