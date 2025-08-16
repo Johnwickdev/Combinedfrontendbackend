@@ -23,7 +23,7 @@ import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
-import reactor.util.retry.Retry;                 // <-- add
+import reactor.util.retry.Retry;
 
 import javax.annotation.PostConstruct;
 import java.net.URI;
@@ -60,8 +60,7 @@ import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 public class LiveFeedService {
     private final WriteApiBlocking writeApi ;
     private final UpstoxAuthService auth;
-// ✅ ADD THIS BELOW IT 👇
-private final NseInstrumentService nseInstrumentService;
+    private final NseInstrumentService nseInstrumentService;
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
 // Tracks currently subscribed CE/PE instruments for debug/monitoring
@@ -390,12 +389,16 @@ public void initAutoStart() {
             JsonNode feeds = tick.path("feeds");
             feeds.fields().forEachRemaining(entry -> {
                 String instrumentKey = entry.getKey();
+                JsonNode feed = entry.getValue();
+                JsonNode ltpNode = feed
                 JsonNode ltpNode = entry.getValue()
                         .path("fullFeed")
                         .path("marketFF")
                         .path("ltpc")
                         .path("ltp");
                 if (!ltpNode.isMissingNode()) {
+                    log.info("📈 Option tick: {} LTP={}", instrumentKey, ltpNode.asDouble());
+                    log.info("📊 Full tick for {} -> {}", instrumentKey, feed.toPrettyString());
                     log.info("📈 Option tick: {} LTP={} ", instrumentKey, ltpNode.asDouble());
                 } else {
                     log.debug("⏳ tick for {}", instrumentKey);
