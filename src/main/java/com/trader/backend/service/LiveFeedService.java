@@ -31,6 +31,7 @@ import java.time.Duration;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -43,13 +44,10 @@ import java.util.Locale;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Comparator;
-import com.trader.backend.service.NseInstrumentService;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
-import com.trader.backend.entity.NseInstrument;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 
@@ -63,6 +61,9 @@ public class LiveFeedService {
     private final NseInstrumentService nseInstrumentService;
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
+    private final QuantAnalysisService quantAnalysisService;
+    @Value("${app.mock:false}")
+    private boolean mockMode;
 // Tracks currently subscribed CE/PE instruments for debug/monitoring
 private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
     private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
@@ -77,6 +78,12 @@ private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
 
   @PostConstruct
 public void initAutoStart() {
+    if (mockMode) {
+        log.info("🧪 Mock mode enabled - skipping live feed startup");
+        // streamNiftyFutAndTriggerCEPE(); // Nifty Future live ticks
+        // setupNiftyOptionsLiveFeed();   // Option chain live ticks
+        return;
+    }
     log.info("🚀 Starting auto init sequence...");
 
     // make sure token is valid before any network calls
@@ -398,6 +405,16 @@ public void initAutoStart() {
                 if (!ltpNode.isMissingNode()) {
                     log.info("📈 Option tick: {} LTP={}", instrumentKey, ltpNode.asDouble());
                     log.info("📊 Full tick for {} -> {}", instrumentKey, feed.toPrettyString());
+
+                    var result = quantAnalysisService.analyze(instrumentKey, feed);
+                    if (result.signal() != QuantAnalysisService.Signal.NONE) {
+                        log.info("🎯 {} for {} → momentum={} volSpike={} imbalance={} noise={}",
+                                result.signal(), instrumentKey,
+                                String.format("%.4f", result.momentum()),
+                                String.format("%.2f", result.volumeSpike()),
+                                String.format("%.4f", result.imbalance()),
+                                String.format("%.2f", result.noise()));
+                    }
                 } else {
                     log.debug("⏳ tick for {}", instrumentKey);
                 }
