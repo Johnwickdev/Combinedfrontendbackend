@@ -391,6 +391,7 @@ public void initAutoStart() {
                 String instrumentKey = entry.getKey();
                 JsonNode feed = entry.getValue();
                 JsonNode ltpNode = feed
+                JsonNode ltpNode = entry.getValue()
                         .path("fullFeed")
                         .path("marketFF")
                         .path("ltpc")
@@ -398,6 +399,7 @@ public void initAutoStart() {
                 if (!ltpNode.isMissingNode()) {
                     log.info("📈 Option tick: {} LTP={}", instrumentKey, ltpNode.asDouble());
                     log.info("📊 Full tick for {} -> {}", instrumentKey, feed.toPrettyString());
+                    log.info("📈 Option tick: {} LTP={} ", instrumentKey, ltpNode.asDouble());
                 } else {
                     log.debug("⏳ tick for {}", instrumentKey);
                 }
