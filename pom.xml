@@ -17,11 +17,20 @@
 	<version>0.0.1-SNAPSHOT</version>
 	<name>backend</name>
 
-	<properties>
-		<java.version>17</java.version>
-		<!-- align your Protobuf versions here -->
-		<protoc.version>3.21.12</protoc.version>
-	</properties>
+        <properties>
+                <java.version>17</java.version>
+                <!-- align your Protobuf versions here -->
+                <protoc.version>3.21.12</protoc.version>
+        </properties>
+
+        <!-- Additional repositories -->
+        <repositories>
+                <!-- Needed for artifacts like com.github.jai-imageio:jai-imageio-core -->
+                <repository>
+                        <id>jitpack.io</id>
+                        <url>https://jitpack.io</url>
+                </repository>
+        </repositories>
 
 	<dependencies>
 		<!-- Spring + Redis + WebFlux -->
