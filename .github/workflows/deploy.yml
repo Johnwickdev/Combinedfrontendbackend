@@ -25,6 +25,7 @@ jobs:
           node-version: 20
 
       - name: Build JAR
+        run: ./mvnw package -DskipTests -DskipFrontend=true
         run: ./mvnw package -DskipTests -DskipFrontend=true -Dskip.installnodenpm=true
 
       - name: Log in to GitHub Container Registry
