@@ -182,13 +182,15 @@
         <workingDirectory>frontend</workingDirectory>
         <npmInheritsProxyConfigFromMaven>false</npmInheritsProxyConfigFromMaven>
         <skip>${skipFrontend}</skip>
+        <!-- Automatically download a specific Node & NPM version -->
+        <nodeVersion>v18.18.0</nodeVersion>
+        <npmVersion>9.8.1</npmVersion>
       </configuration>
 
       <executions>
         <execution>
           <id>install node and npm</id>
           <goals><goal>install-node-and-npm</goal></goals>
-          <configuration><skip>true</skip></configuration>
         </execution>
         <execution>
           <id>npm install</id>
