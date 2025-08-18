@@ -162,6 +162,56 @@
 					</execution>
 				</executions>
 			</plugin>
+			 <plugin>
+      <groupId>com.github.eirslett</groupId>
+      <artifactId>frontend-maven-plugin</artifactId>
+      <version>1.13.4</version>
+
+      <!-- run npm inside frontend/ -->
+      <configuration>
+        <workingDirectory>frontend</workingDirectory>
+      </configuration>
+
+      <executions>
+        <execution>
+          <id>install node and npm</id>
+          <goals><goal>install-node-and-npm</goal></goals>
+          <configuration><nodeVersion>v20.11.1</nodeVersion></configuration>
+        </execution>
+        <execution>
+          <id>npm install</id>
+          <goals><goal>npm</goal></goals>
+          <configuration><arguments>install</arguments></configuration>
+        </execution>
+        <execution>
+          <id>ng build</id>
+          <phase>generate-resources</phase>
+          <goals><goal>npm</goal></goals>
+          <configuration><arguments>run build -- --configuration production</arguments></configuration>
+        </execution>
+      </executions>
+    </plugin>
+
+    <!-- copy dist/ to Spring Boot’s static/ -->
+    <plugin>
+      <artifactId>maven-resources-plugin</artifactId>
+      <executions>
+        <execution>
+          <id>copy-angular</id>
+          <phase>process-resources</phase>
+          <goals><goal>copy-resources</goal></goals>
+          <configuration>
+            <outputDirectory>${project.basedir}/src/main/resources/static</outputDirectory>
+            <resources>
+              <resource>
+                <directory>${project.basedir}/frontend/dist/frontend</directory>
+                <filtering>false</filtering>
+              </resource>
+            </resources>
+          </configuration>
+        </execution>
+      </executions>
+    </plugin>
 		</plugins>
 	</build>
 </project>
