@@ -8,6 +8,7 @@ COPY . .
 
 RUN chmod +x mvnw
 RUN echo "JAVA_HOME is: $JAVA_HOME" && java -version
-RUN ./mvnw clean package -DskipTests
+# Skip building the Angular frontend so Maven doesn't try to download Node
+RUN ./mvnw clean package -DskipTests -DskipFrontend=true
 
 CMD ["java", "-jar", "target/backend-0.0.1-SNAPSHOT.jar"]
