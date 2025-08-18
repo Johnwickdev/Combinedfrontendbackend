@@ -21,6 +21,8 @@
                 <java.version>17</java.version>
                 <!-- align your Protobuf versions here -->
                 <protoc.version>3.21.12</protoc.version>
+                <!-- Skip frontend build by default to avoid requiring Node during CI -->
+                <skipFrontend>true</skipFrontend>
         </properties>
 
         <!-- Additional repositories -->
@@ -177,21 +179,14 @@
       <artifactId>frontend-maven-plugin</artifactId>
       <version>1.13.4</version>
 
-      <!-- run npm inside frontend/ -->
+      <!-- run npm inside frontend/, relying on system Node instead of downloading -->
       <configuration>
         <workingDirectory>frontend</workingDirectory>
         <npmInheritsProxyConfigFromMaven>false</npmInheritsProxyConfigFromMaven>
         <skip>${skipFrontend}</skip>
-        <!-- Automatically download a specific Node & NPM version -->
-        <nodeVersion>v18.18.0</nodeVersion>
-        <npmVersion>9.8.1</npmVersion>
       </configuration>
 
       <executions>
-        <execution>
-          <id>install node and npm</id>
-          <goals><goal>install-node-and-npm</goal></goals>
-        </execution>
         <execution>
           <id>npm install</id>
           <goals><goal>npm</goal></goals>
