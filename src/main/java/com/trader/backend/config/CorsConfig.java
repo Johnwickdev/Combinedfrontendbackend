@@ -19,8 +19,10 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
 
-        // ✅ Set your frontend domain here
-        config.setAllowedOrigins(List.of("https://frontendfortheautobot.vercel.app","https://localhost:4200"));
+        // ✅ Allow the AWS-hosted frontend and local development
+        config.setAllowedOrigins(List.of(
+                "https://autotradxxebbu-env.eba-vp9dhc3a.eu-north-1.elasticbeanstalk.com",
+                "https://localhost:4200"));
 
         config.setAllowedHeaders(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

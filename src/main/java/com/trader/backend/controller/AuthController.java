@@ -46,7 +46,8 @@ public void handleUpstoxRedirect(@RequestParam Map<String, String> qs,
             .subscribe(); // fire and forget
 
         try {
-            response.sendRedirect("https://frontendfortheautobot.vercel.app/dashboard");
+            // Redirect to the deployed AWS frontend instead of the old Vercel URL
+            response.sendRedirect("https://autotradxxebbu-env.eba-vp9dhc3a.eu-north-1.elasticbeanstalk.com/dashboard");
         } catch (Exception e) {
             e.printStackTrace();
         }
