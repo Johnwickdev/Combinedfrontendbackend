@@ -49,13 +49,13 @@ public class UpstoxAuthService {
         this.liveFeedService = liveFeedService;
     }
 
-    @Value("${upstox.apiKey}")
+    @Value("${upstox.apiKey:}")
     private String apiKey;
 
-    @Value("${upstox.apiSecret}")
+    @Value("${upstox.apiSecret:}")
     private String apiSecret;
 
-    @Value("${upstox.webhookUri}")
+    @Value("${upstox.webhookUri:}")
     private String webhookUri;
 
     private final AtomicReference<String> accessToken = new AtomicReference<>();
@@ -64,6 +64,10 @@ public class UpstoxAuthService {
     private final AtomicReference<String> currentToken = new AtomicReference<>();
 
     public Mono<Void> exchangeCode(String code) {
+        if (apiKey.isBlank() || apiSecret.isBlank() || webhookUri.isBlank()) {
+            return Mono.error(new IllegalStateException("Upstox credentials not configured"));
+        }
+
         return webClient.post()
                 .uri("/login/authorization/token")
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
@@ -134,6 +138,10 @@ public class UpstoxAuthService {
     }
 }
     public String buildAuthUrl() {
+        if (apiKey.isBlank() || webhookUri.isBlank()) {
+            throw new IllegalStateException("Upstox credentials not configured");
+        }
+
         return UriComponentsBuilder
                 .fromUriString("https://api.upstox.com/v2/login/authorization/dialog")
                 .queryParam("response_type", "code")

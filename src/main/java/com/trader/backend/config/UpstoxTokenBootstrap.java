@@ -12,7 +12,7 @@ public class UpstoxTokenBootstrap {
 
     private final ApiClient apiClient;
 
-    @Value("${upstox.accessToken}")
+    @Value("${upstox.accessToken:}")
     private String accessToken;
 
     public UpstoxTokenBootstrap(ApiClient apiClient) {
@@ -21,9 +21,13 @@ public class UpstoxTokenBootstrap {
 
     @PostConstruct
     public void init() {
-        // safest way: set default header directly
-        apiClient.addDefaultHeader("Authorization", "Bearer " + accessToken);
-        log.info("✅ Sandbox access-token attached as default header: {}", accessToken);
+        // Only attach the header if a token is actually provided
+        if (accessToken != null && !accessToken.isBlank()) {
+            apiClient.addDefaultHeader("Authorization", "Bearer " + accessToken);
+            log.info("✅ Sandbox access-token attached as default header: {}", accessToken);
+        } else {
+            log.warn("⚠️ upstox.accessToken not set; skipping default Authorization header");
+        }
     }
 
 }
