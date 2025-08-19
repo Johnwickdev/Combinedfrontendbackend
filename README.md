@@ -18,3 +18,9 @@ configure the following environment variables:
 
 You can also set `LOG_DIR` to change the directory where local log files are
 stored (defaults to `logs`).
+
+## Authentication
+
+The frontend redirect target used after a successful Upstox login can be
+configured via the `AWS_REDIRECT_URL` environment variable. The current value
+can be retrieved from the backend at `GET /auth/redirect-url`.
