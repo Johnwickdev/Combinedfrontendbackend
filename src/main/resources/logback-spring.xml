@@ -26,7 +26,7 @@
     <springProperty scope="context" name="LOG_AGGREGATOR_HOST" source="LOG_AGGREGATOR_HOST"/>
     <springProperty scope="context" name="LOG_AGGREGATOR_PORT" source="LOG_AGGREGATOR_PORT"/>
 
-    <if condition='property("LOG_AGGREGATOR_HOST").length() > 0 && property("LOG_AGGREGATOR_PORT").length() > 0'>
+    <if condition='property("LOG_AGGREGATOR_HOST").length() > 0 &amp;&amp; property("LOG_AGGREGATOR_PORT").length() > 0'>
         <then>
             <appender name="SOCKET" class="ch.qos.logback.classic.net.SocketAppender">
                 <remoteHost>${LOG_AGGREGATOR_HOST}</remoteHost>
@@ -39,7 +39,7 @@
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
-        <if condition='property("LOG_AGGREGATOR_HOST").length() > 0 && property("LOG_AGGREGATOR_PORT").length() > 0'>
+        <if condition='property("LOG_AGGREGATOR_HOST").length() > 0 &amp;&amp; property("LOG_AGGREGATOR_PORT").length() > 0'>
             <then>
                 <appender-ref ref="SOCKET"/>
             </then>
