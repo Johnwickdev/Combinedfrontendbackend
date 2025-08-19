@@ -14,6 +14,7 @@ import com.trader.backend.entity.NseInstrument;
 import com.upstox.marketdatafeederv3udapi.rpc.proto.MarketDataFeed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -56,7 +57,10 @@ import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 @Slf4j
 @RequiredArgsConstructor
 public class LiveFeedService {
-    private final WriteApiBlocking writeApi ;
+
+    @Autowired(required = false)
+    private WriteApiBlocking writeApi;
+
     private final UpstoxAuthService auth;
     private final NseInstrumentService nseInstrumentService;
     private final ObjectMapper om = new ObjectMapper();
@@ -559,8 +563,12 @@ public void writeNiftyFutLtpToInflux(double ltp, long timestamp) {
             .addField("ltp", ltp)
             .time(Instant.ofEpochMilli(timestamp), WritePrecision.MS);
 
-    writeApi.writePoint(point);
-    log.info("✅ [Influx] NIFTY FUT LTP written: {}", point);
+    if (writeApi != null) {
+        writeApi.writePoint(point);
+        log.info("✅ [Influx] NIFTY FUT LTP written: {}", point);
+    } else {
+        log.debug("Influx disabled; skipping write: {}", point);
+    }
 }
 /** Builds a fresh SUB frame from the current filtered_nifty_premiums (15 CE + 15 PE). */
 private byte[] buildFilteredSubFrame() {
