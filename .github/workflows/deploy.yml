@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   build-and-deploy:
@@ -29,22 +28,12 @@ jobs:
       - name: Locate built JAR
         run: echo "JAR_FILE=$(ls target/*.jar | head -n 1)" >> $GITHUB_ENV
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set lowercase owner
-        run: echo "REPO_OWNER_LC=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/${{ env.REPO_OWNER_LC }}/backend:latest
+      - name: Create deployment bundle
+        run: |
+          JAR_BASENAME=$(basename "$JAR_FILE")
+          cp "$JAR_FILE" "$JAR_BASENAME"
+          zip -r deploy.zip "$JAR_BASENAME" Procfile .ebextensions
+          echo "DEPLOY_ZIP=deploy.zip" >> $GITHUB_ENV
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -62,4 +51,4 @@ jobs:
           aws_secret_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           version_label: github-${{ github.sha }}
           region: ${{ secrets.AWS_REGION }}
-          deployment_package: ${{ env.JAR_FILE }}
+          deployment_package: ${{ env.DEPLOY_ZIP }}
