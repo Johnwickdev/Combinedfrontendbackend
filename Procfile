@@ -1,1 +1,1 @@
-web: java -jar -Dserver.port=5000 backend-0.0.1-SNAPSHOT.jar
+web: java -jar -Dserver.port=8080 backend-0.0.1-SNAPSHOT.jar
