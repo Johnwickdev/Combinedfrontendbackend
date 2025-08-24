@@ -76,6 +76,12 @@
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
 		</dependency>
+		<!-- Gives WebClient, Mono/Flux etc., but does NOT switch you to Netty -->
+<dependency>
+  <groupId>org.springframework</groupId>
+  <artifactId>spring-webflux</artifactId>
+</dependency>
+
 
 		<!-- Testing -->
 		<dependency>
