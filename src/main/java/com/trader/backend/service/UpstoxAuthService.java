@@ -16,6 +16,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import java.util.Base64;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
@@ -65,7 +66,7 @@ public class UpstoxAuthService {
      */
     @PostConstruct
     void init() {
-        log.info("No Upstox token yet — waiting for frontend OAuth login (/auth/url → /auth/exchange).");
+        log.info("No Upstox token yet — waiting for OAuth login (GET /auth/url).");
         authEvents.tryEmitNext(AuthEvent.WAITING);
     }
 
@@ -96,19 +97,30 @@ public class UpstoxAuthService {
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .doOnNext(tok -> {
                     String at = (String) tok.get("access_token");
-                    String rt = (String) tok.get("refresh_token");
-                    Integer ttl = (Integer) tok.get("expires_in");
-                    if (at == null || rt == null || ttl == null) {
+                    if (at == null || at.isBlank()) {
                         log.warn("Invalid token response: {}", tok);
                         return;
                     }
+
                     accessToken.set(at);
-                    refreshToken.set(rt);
-                    long exp = System.currentTimeMillis() / 1000 + ttl;
+
+                    String rt = (String) tok.get("refresh_token");
+                    if (rt != null && !rt.isBlank()) {
+                        refreshToken.set(rt);
+                    }
+
+                    Number ttlNum = (Number) tok.get("expires_in");
+                    long exp;
+                    if (ttlNum != null) {
+                        exp = System.currentTimeMillis() / 1000 + ttlNum.longValue();
+                    } else {
+                        exp = extractExpiry(at);
+                    }
                     expiresAt.set(exp);
+
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     authEvents.tryEmitNext(AuthEvent.READY);
-                    log.info("✅ access_token saved ({} min left, expires {})", ttl / 60, Instant.ofEpochSecond(exp));
+                    log.info("✅ access_token saved (expires {})", exp > 0 ? Instant.ofEpochSecond(exp) : "unknown");
                     liveFeed.initLiveWebSocket();
                 })
                 .then();
@@ -183,6 +195,22 @@ public class UpstoxAuthService {
                     authEvents.tryEmitNext(AuthEvent.EXPIRED);
                     return Mono.just(false);
                 });
+    }
+
+    /**
+     * Parse the JWT payload to extract the exp claim when expires_in is missing.
+     */
+    private long extractExpiry(String jwt) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) return 0L;
+            String payload = new String(Base64.getUrlDecoder().decode(parts[1]));
+            JsonNode node = mapper.readTree(payload);
+            return node.path("exp").asLong(0L);
+        } catch (Exception e) {
+            log.warn("Failed to parse JWT exp", e);
+            return 0L;
+        }
     }
 
     /** Current token for other services. */

@@ -41,7 +41,11 @@ public class AuthController {
         log.info("Received code: {}", code);
 
         if (code != null && !code.isBlank()) {
-            auth.exchangeCode(code).subscribe();
+            try {
+                auth.exchangeCode(code).block();
+            } catch (Exception e) {
+                log.error("Token exchange failed", e);
+            }
             try {
                 response.sendRedirect(frontendRedirectUrl);
             } catch (Exception e) {

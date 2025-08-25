@@ -30,7 +30,8 @@ public class CorsConfig {
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        source.registerCorsConfiguration("/auth/url", config);
+        source.registerCorsConfiguration("/auth/status", config);
 
         return new CorsFilter(source);
     }
