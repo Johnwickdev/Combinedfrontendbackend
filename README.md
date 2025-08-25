@@ -22,5 +22,10 @@ stored (defaults to `logs`).
 ## Authentication
 
 The frontend redirect target used after a successful Upstox login can be
-configured via the `AWS_REDIRECT_URL` environment variable. The current value
-can be retrieved from the backend at `GET /auth/redirect-url`.
+configured via the `FRONTEND_REDIRECT_URL` environment variable. By default this
+points to the deployed Vercel frontend. The current value can be retrieved from
+the backend at `GET /auth/redirect-url`.
+
+For CORS, set `FRONTEND_ORIGIN` to your frontend URL. It defaults to the deployed
+Vercel domain, while `http://localhost:4200` remains allowed for local
+development.

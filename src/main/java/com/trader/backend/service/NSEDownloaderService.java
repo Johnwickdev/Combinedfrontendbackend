@@ -1,5 +1,6 @@
 package com.trader.backend.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -9,6 +10,7 @@ import java.time.LocalDateTime;
 import java.util.zip.GZIPInputStream;
 
 @Service
+@Slf4j
 public class NSEDownloaderService {
 
     public String downloadAndExtract() {
@@ -22,7 +24,7 @@ public class NSEDownloaderService {
 
             try (InputStream in = new URL(downloadUrl).openStream()) {
                 Files.copy(in, gzPath, StandardCopyOption.REPLACE_EXISTING);
-                System.out.println("✅ NSE.json.gz downloaded.");
+                log.info("NSE.json.gz downloaded.");
             }
 
             try (GZIPInputStream gis = new GZIPInputStream(new FileInputStream(gzPath.toFile()));
@@ -32,14 +34,14 @@ public class NSEDownloaderService {
                 while ((len = gis.read(buffer)) != -1) {
                     out.write(buffer, 0, len);
                 }
-                System.out.println("✅ NSE.json extracted.");
+                log.info("NSE.json extracted.");
             }
 
             return "NSE.json downloaded and extracted at " + LocalDateTime.now();
 
         } catch (Exception e) {
-            e.printStackTrace();
-            return "❌ Failed to download/extract NSE file: " + e.getMessage();
+            log.error("Failed to download/extract NSE file: {}", e.getMessage(), e);
+            return "Failed to download/extract NSE file: " + e.getMessage();
         }
     }
 }

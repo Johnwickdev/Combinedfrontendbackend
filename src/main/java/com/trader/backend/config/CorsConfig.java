@@ -1,5 +1,6 @@
 package com.trader.backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -14,15 +15,16 @@ import java.util.List;
 @EnableWebMvc
 public class CorsConfig {
 
+    @Value("${FRONTEND_ORIGIN:https://frontendfortheautobot-7u7woqq2m-johnwicks-projects-025aea65.vercel.app}")
+    private String frontendOrigin;
+
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
 
-        // ✅ Allow the AWS-hosted frontend and local development
-        config.setAllowedOrigins(List.of(
-                "https://autotradxxebbu-env.eba-vp9dhc3a.eu-north-1.elasticbeanstalk.com",
-                "https://localhost:4200"));
+        // Allow the deployed frontend and local development
+        config.setAllowedOrigins(List.of(frontendOrigin, "http://localhost:4200"));
 
         config.setAllowedHeaders(List.of("*"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));

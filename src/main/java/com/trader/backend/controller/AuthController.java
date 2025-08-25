@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trader.backend.service.UpstoxAuthService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -18,13 +19,14 @@ import java.util.Map;
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
 
     private final UpstoxAuthService auth;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    @Value("${AWS_REDIRECT_URL:https://autotradxxebbu-env.eba-vp9dhc3a.eu-north-1.elasticbeanstalk.com/dashboard}")
-    private String awsRedirectUrl;
+    @Value("${FRONTEND_REDIRECT_URL:https://frontendfortheautobot-7u7woqq2m-johnwicks-projects-025aea65.vercel.app/dashboard}")
+    private String frontendRedirectUrl;
 
     @GetMapping("/url")
     public Map<String, String> loginUrl() {
@@ -32,33 +34,30 @@ public class AuthController {
     }
 
     @GetMapping("/redirect-url")
-    public Map<String, String> awsRedirectUrl() {
-        return Map.of("url", awsRedirectUrl);
+    public Map<String, String> redirectUrl() {
+        return Map.of("url", frontendRedirectUrl);
     }
 
     @RequestMapping(value = "", method = RequestMethod.GET)
     public void handleUpstoxRedirect(@RequestParam Map<String, String> qs,
                                      HttpServletResponse response) {
         String code = qs.get("code");
-        System.out.println("🔵 Received code: " + code);
+        log.info("Received code: {}", code);
 
         if (code != null && !code.isBlank()) {
             auth.exchangeCode(code)
                 .doOnSuccess(unused -> {
-                    System.out.println("🟢 Exchange success. Starting WebSocket...");
+                    log.info("Exchange success. Starting WebSocket...");
                     auth.initLiveWebSocket();
                 })
-                .doOnError(e -> {
-                    System.out.println("🔴 Exchange/WebSocket failed: " + e.getMessage());
-                    e.printStackTrace();
-                })
+                .doOnError(e -> log.error("Exchange/WebSocket failed: {}", e.getMessage(), e))
                 .subscribe(); // fire and forget
 
             try {
-                // Redirect to the deployed AWS frontend; configurable via environment variable
-                response.sendRedirect(awsRedirectUrl);
+                // Redirect to the deployed frontend; configurable via environment variable
+                response.sendRedirect(frontendRedirectUrl);
             } catch (Exception e) {
-                e.printStackTrace();
+                log.error("Failed to redirect to frontend", e);
             }
         } else {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
