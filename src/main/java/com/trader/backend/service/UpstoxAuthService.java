@@ -1,10 +1,5 @@
 package com.trader.backend.service;
 
-import com.trader.backend.entity.NseInstrument;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.http.ResponseEntity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.upstox.ApiClient;
@@ -17,22 +12,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import org.springframework.context.annotation.Lazy;
+import reactor.core.publisher.Sinks;
+
+import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
 import java.util.HashMap;
-import com.trader.backend.service.NseInstrumentService;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+/**
+ * Handles OAuth with Upstox and keeps the current access/refresh tokens
+ * in-memory.  It exposes a small event bus so other services can react to
+ * authentication changes without crashing the application when tokens are
+ * missing or expired.
+ */
 @Service
 @Slf4j
 public class UpstoxAuthService {
@@ -40,14 +36,6 @@ public class UpstoxAuthService {
     private final WebClient webClient = WebClient.create("https://api.upstox.com/v2");
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;
-    private final LiveFeedService liveFeedService;
-    private Long tokenCreatedAt;
-    private Long expiresIn;
-
-    public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeedService) {
-        this.apiClient = apiClient;
-        this.liveFeedService = liveFeedService;
-    }
 
     @Value("${upstox.apiKey:}")
     private String apiKey;
@@ -59,10 +47,34 @@ public class UpstoxAuthService {
     private String webhookUri;
 
     private final AtomicReference<String> accessToken = new AtomicReference<>();
-    private final AtomicReference<Long> expiryEpoch = new AtomicReference<>(0L);
-    private final AtomicReference<String> refreshTokenRef = new AtomicReference<>();
-    private final AtomicReference<String> currentToken = new AtomicReference<>();
+    private final AtomicReference<String> refreshToken = new AtomicReference<>();
+    private final AtomicReference<Long> expiresAt = new AtomicReference<>(0L); // epoch seconds
 
+    private final Sinks.Many<AuthEvent> authEvents = Sinks.many().replay().latest();
+
+    public UpstoxAuthService(ApiClient apiClient) {
+        this.apiClient = apiClient;
+    }
+
+    /**
+     * Log a friendly message at boot so Railway users know the backend is
+     * waiting for a login.  This method never fails.
+     */
+    @PostConstruct
+    void init() {
+        log.info("No Upstox token yet — waiting for frontend OAuth login (/auth/url → /auth/exchange).");
+        authEvents.tryEmitNext(AuthEvent.WAITING);
+    }
+
+    /** Event stream for authentication state changes. */
+    public Flux<AuthEvent> events() {
+        return authEvents.asFlux();
+    }
+
+    /**
+     * Exchange the authorization code for tokens and store them in-memory.
+     * Emits {@link AuthEvent#READY} on success.
+     */
     public Mono<Void> exchangeCode(String code) {
         if (apiKey.isBlank() || apiSecret.isBlank() || webhookUri.isBlank()) {
             return Mono.error(new IllegalStateException("Upstox credentials not configured"));
@@ -80,106 +92,126 @@ public class UpstoxAuthService {
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .doOnNext(tok -> {
-                    String token = (String) tok.get("access_token");
-                    if (token == null) {
-                        throw new IllegalStateException("Upstox response had no access_token: " + tok);
+                    String at = (String) tok.get("access_token");
+                    String rt = (String) tok.get("refresh_token");
+                    Integer ttl = (Integer) tok.get("expires_in");
+                    if (at == null || rt == null || ttl == null) {
+                        log.warn("Invalid token response: {}", tok);
+                        return;
                     }
-
-                    Integer ttlSec = (Integer) tok.get("expires_in");
-                    if (ttlSec == null) {
-                        ZonedDateTime now = ZonedDateTime.now(ZoneId.of("Asia/Kolkata"));
-                        ZonedDateTime next = now.withHour(3).withMinute(30).withSecond(0);
-                        if (!next.isAfter(now)) next = next.plusDays(1);
-                        ttlSec = (int) Duration.between(now, next).getSeconds();
-                    }
-
-                    accessToken.set(token);
-                    expiryEpoch.set(System.currentTimeMillis() / 1000 + ttlSec);
-                    apiClient.addDefaultHeader("Authorization", "Bearer " + token);
-
-                    log.info("✅ access_token saved ({} min left, expires {})",
-                            ttlSec / 60, Instant.ofEpochSecond(expiryEpoch.get())
-                                    .atZone(ZoneId.of("Asia/Kolkata")));
+                    accessToken.set(at);
+                    refreshToken.set(rt);
+                    long exp = System.currentTimeMillis() / 1000 + ttl;
+                    expiresAt.set(exp);
+                    apiClient.addDefaultHeader("Authorization", "Bearer " + at);
+                    authEvents.tryEmitNext(AuthEvent.READY);
+                    log.info("✅ access_token saved ({} min left, expires {})", ttl / 60, Instant.ofEpochSecond(exp));
                 })
-                .then(Mono.fromRunnable(this::initLiveWebSocket)); // ✅ Trigger WS after login
+                .then();
     }
 
-    public void initLiveWebSocket() {
-    log.info("⚡ initLiveWebSocket() called after successful login");
-
-    try {
-        // ✅ Find current month NIFTY FUT from DB
-        Query query = new Query();
-        query.addCriteria(Criteria.where("segment").is("NSE_FO")
-                .and("instrumentType").is("FUT")
-                .and("lot_size").is(75));
-        query.with(Sort.by(Sort.Direction.ASC, "expiry"));
-
-        List<NseInstrument> futures = liveFeedService.getMongoTemplate()
-                .find(query, NseInstrument.class, "nifty_futures");
-
-        long now = System.currentTimeMillis();
-        Optional<NseInstrument> nearest = futures.stream()
-                .filter(i -> i.getExpiry() > now)
-                .findFirst();
-
-        if (nearest.isEmpty()) {
-            log.warn("❌ No valid NIFTY FUTURE found to stream.");
-            return;
-        }
-
-        String instrumentKey = nearest.get().getInstrument_key();
-        log.info("📌 Starting WebSocket for NIFTY FUT: {}", instrumentKey);
-
-        liveFeedService.streamSingleInstrument(instrumentKey);
-
-    } catch (Exception e) {
-        log.error("🔥 Failed to start WebSocket stream for NIFTY FUTURE", e);
-    }
-}
-    public String buildAuthUrl() {
-        if (apiKey.isBlank() || webhookUri.isBlank()) {
-            throw new IllegalStateException("Upstox credentials not configured");
-        }
-
-        return UriComponentsBuilder
-                .fromUriString("https://api.upstox.com/v2/login/authorization/dialog")
-                .queryParam("response_type", "code")
-                .queryParam("client_id", apiKey)
-                .queryParam("redirect_uri", webhookUri)
-                .queryParam("state", "botInit")
-                .queryParam("scope", "profile marketdata")
-                .build().toUriString();
-    }
-
-    public Mono<Map<String, Object>> status() {
+    /**
+     * Ensure the current token is still valid.  Never throws.  If the token is
+     * missing or a refresh fails, {@code Mono.just(false)} is returned.
+     */
+    public Mono<Boolean> ensureValidToken() {
         long now = System.currentTimeMillis() / 1000;
-        long expiry = expiryEpoch.get();
-        boolean ok = accessToken.get() != null && now < expiry;
+        String at = accessToken.get();
+        if (at == null) {
+            log.warn("No Upstox token available; awaiting login");
+            authEvents.tryEmitNext(AuthEvent.WAITING);
+            return Mono.just(false);
+        }
 
-        return Mono.just(Map.of(
-                "ready", ok,
-                "expiresInSec", ok ? (expiry - now) : 0
-        ));
+        long exp = expiresAt.get();
+        if (now >= exp) {
+            log.warn("Access token expired; attempting refresh");
+            return refreshToken()
+                    .onErrorResume(e -> {
+                        log.warn("Token refresh failed", e);
+                        authEvents.tryEmitNext(AuthEvent.EXPIRED);
+                        return Mono.just(false);
+                    });
+        }
+
+        return Mono.just(true);
     }
 
+    /**
+     * Refresh the current access token.  Emits {@link AuthEvent#READY} on
+     * success and {@link AuthEvent#EXPIRED} on failure.
+     */
+    private Mono<Boolean> refreshToken() {
+        String rt = refreshToken.get();
+        if (rt == null) {
+            authEvents.tryEmitNext(AuthEvent.EXPIRED);
+            return Mono.just(false);
+        }
+
+        return webClient.post()
+                .uri("/login/authorization/token")
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .body(BodyInserters.fromFormData("grant_type", "refresh_token")
+                        .with("refresh_token", rt)
+                        .with("client_id", apiKey)
+                        .with("client_secret", apiSecret))
+                .retrieve()
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
+                .map(tok -> {
+                    String at = (String) tok.get("access_token");
+                    Integer ttl = (Integer) tok.get("expires_in");
+                    String newRt = (String) tok.get("refresh_token");
+                    if (at == null || ttl == null) {
+                        return false;
+                    }
+                    accessToken.set(at);
+                    if (newRt != null) refreshToken.set(newRt);
+                    long exp = System.currentTimeMillis() / 1000 + ttl;
+                    expiresAt.set(exp);
+                    apiClient.addDefaultHeader("Authorization", "Bearer " + at);
+                    log.info("🔄 Refreshed access_token ({} sec left)", ttl);
+                    authEvents.tryEmitNext(AuthEvent.READY);
+                    return true;
+                })
+                .onErrorResume(e -> {
+                    log.warn("Refresh call failed", e);
+                    authEvents.tryEmitNext(AuthEvent.EXPIRED);
+                    return Mono.just(false);
+                });
+    }
+
+    /** Current token for other services. */
     public String currentToken() {
         return accessToken.get();
     }
 
     public void setCurrentToken(String token) {
-        currentToken.set(token);
+        accessToken.set(token);
         apiClient.addDefaultHeader("Authorization", "Bearer " + token);
     }
 
-    public String getCurrentToken() {
-        return currentToken.get();
+    /**
+     * Simple status endpoint helper.
+     */
+    public Mono<Map<String, Object>> status() {
+        long now = System.currentTimeMillis() / 1000;
+        long exp = expiresAt.get();
+        boolean connected = accessToken.get() != null && now < exp;
+
+        Map<String, Object> m = new HashMap<>();
+        m.put("connected", connected);
+        m.put("expiresAt", exp);
+        m.put("remainingSeconds", connected ? exp - now : 0);
+        return Mono.just(m);
     }
 
+    /** Convenience method used by controllers to fetch market quotes. */
     public Mono<Map<String, Object>> fetchQuote(String exchange, String symbol) {
         String token = accessToken.get();
         if (token == null) {
-            return Mono.error(new IllegalStateException("Access-token not ready. Hit /auth/exchange first."));
+            log.warn("Access-token not ready. Hit /auth/exchange first.");
+            return Mono.just(Map.of());
         }
 
         return webClient.get()
@@ -197,88 +229,14 @@ public class UpstoxAuthService {
                 });
     }
 
-    public Mono<Void> ensureValidToken() {
-        long now = System.currentTimeMillis() / 1000;
-        if (accessToken.get() == null || now >= expiryEpoch.get()) {
-            return refreshToken();
-        }
-        return Mono.empty();
-    }
-
-    public Mono<Void> refreshToken() {
-        String rt = refreshTokenRef.get();
-        if (rt == null) {
-            return Mono.error(new IllegalStateException("No refresh token; must re-authenticate"));
-        }
-        return webClient.post()
-                .uri("/login/authorization/token")
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .body(BodyInserters.fromFormData("grant_type", "refresh_token")
-                        .with("refresh_token", rt)
-                        .with("client_id", apiKey)
-                        .with("client_secret", apiSecret))
-                .retrieve()
-                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
-                .doOnNext(tok -> {
-                    String newAt = (String) tok.get("access_token");
-                    Integer expires = (Integer) tok.get("expires_in");
-                    String newRt = (String) tok.get("extended_token");
-
-                    accessToken.set(newAt);
-                    expiryEpoch.set(System.currentTimeMillis() / 1000 + expires);
-                    if (newRt != null) refreshTokenRef.set(newRt);
-                    apiClient.addDefaultHeader("Authorization", "Bearer " + newAt);
-
-                    log.info("🔄 Refreshed access_token ({} sec left)", expires);
-                })
-                .then();
-    }
-
-    public Mono<TokenRequestResponse> requestAccessTokenPush() {
-        return webClient.post()
-                .uri("/login/auth/token/request/{clientId}", apiKey)
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .bodyValue(Map.of("client_secret", apiSecret))
-                .retrieve()
-                .bodyToMono(TokenRequestResponse.class);
-    }
-
-    public record TokenRequestResponse(
-            String status,
-            Data data
-    ) {
-        public record Data(String authorization_expiry, String notifier_url) {
-        }
-    }
-
-    public Mono<Map<String, Object>> initiateAccessTokenRequest() {
-        return webClient.post()
-                .uri("/login/authorization/request_token")
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .bodyValue(Map.of(
-                        "client_id", apiKey,
-                        "client_secret", apiSecret,
-                        "redirect_uri", webhookUri
-                ))
-                .exchangeToMono(res -> res.bodyToMono(String.class)
-                        .map(body -> {
-                            Map<String, Object> m = new HashMap<>();
-                            m.put("code", res.statusCode().value());
-                            m.put("rawBody", body);
-                            return m;
-                        }))
-                .timeout(Duration.ofSeconds(5));
-    }
-
-    public Mono<Void> handleWebhook(String rawOrQueryJson) {
+    /** For webhook based auth flows (unused but kept for completeness). */
+    public Mono<Void> handleWebhook(String rawJson) {
         String code;
         try {
-            JsonNode node = mapper.readTree(rawOrQueryJson);
+            JsonNode node = mapper.readTree(rawJson);
             code = node.path("code").asText(null);
             if (code == null || code.isBlank()) {
-                log.warn("Webhook hit but no ?code= param found -> {}", rawOrQueryJson);
+                log.warn("Webhook hit but no ?code= param found -> {}", rawJson);
                 return Mono.empty();
             }
         } catch (IOException e) {
@@ -287,24 +245,24 @@ public class UpstoxAuthService {
 
         return exchangeCode(code);
     }
-public ResponseEntity<Map<String, Object>> getTokenStatus() {
-    Map<String, Object> status = new HashMap<>();
 
-    if (tokenCreatedAt == null || expiresIn == null) {
-        status.put("status", "NOT_CONNECTED");
-        return ResponseEntity.ok(status);
+    /** Build the Upstox OAuth dialog URL for the frontend. */
+    public String buildAuthUrl() {
+        if (apiKey.isBlank() || webhookUri.isBlank()) {
+            throw new IllegalStateException("Upstox credentials not configured");
+        }
+
+        return UriComponentsBuilder
+                .fromUriString("https://api.upstox.com/v2/login/authorization/dialog")
+                .queryParam("response_type", "code")
+                .queryParam("client_id", apiKey)
+                .queryParam("redirect_uri", webhookUri)
+                .queryParam("state", "botInit")
+                .queryParam("scope", "profile marketdata")
+                .build().toUriString();
     }
 
-    Instant created = Instant.ofEpochMilli(tokenCreatedAt);
-    Instant now = Instant.now();
-    long remaining = expiresIn - Duration.between(created, now).getSeconds();
-
-    status.put("status", "CONNECTED");
-    status.put("createdAt", tokenCreatedAt);
-    status.put("expiresIn", expiresIn);
-    status.put("remainingSeconds", remaining);
-
-    return ResponseEntity.ok(status);
+    /** Authentication lifecycle events. */
+    public enum AuthEvent { WAITING, READY, EXPIRED }
 }
 
-}

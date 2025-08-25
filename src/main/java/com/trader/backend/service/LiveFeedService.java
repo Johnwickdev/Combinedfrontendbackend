@@ -72,46 +72,43 @@ public class LiveFeedService {
 private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
     private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
 private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
+private final AtomicBoolean started = new AtomicBoolean(false);
     /**
      * Exposed for your controllers to subscribe
      **/
     public Flux<JsonNode> stream() {
         return sink.asFlux();
     }
+    @PostConstruct
+    public void subscribeToAuthEvents() {
+        auth.events()
+                .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
+                .take(1)
+                .subscribe(ev -> {
+                    if (mockMode) {
+                        log.info("🧪 Mock mode enabled - skipping live feed startup");
+                        return;
+                    }
+                    if (started.compareAndSet(false, true)) {
+                        log.info("OAuth success — starting live streaming…");
+                        try {
+                            nseInstrumentService.purgeExpiredOptionDocs();
+                            nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+                            nseInstrumentService.saveNiftyFuturesToMongo();
+                            streamNiftyFutAndTriggerCEPE();
+                        } catch (Exception e) {
+                            log.error("❌ init sequence failed", e);
+                        }
+                    }
+                });
 
-
-  @PostConstruct
-public void initAutoStart() {
-    if (mockMode) {
-        log.info("🧪 Mock mode enabled - skipping live feed startup");
-        // streamNiftyFutAndTriggerCEPE(); // Nifty Future live ticks
-        // setupNiftyOptionsLiveFeed();   // Option chain live ticks
-        return;
+        auth.events()
+                .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
+                .subscribe(e -> {
+                    log.warn("Auth token expired or refresh failed; waiting for re-login");
+                    started.set(false);
+                });
     }
-    log.info("🚀 Starting auto init sequence...");
-
-    // make sure token is valid before any network calls
-    auth.ensureValidToken()
-        .doOnSuccess(v -> {
-            try {
-                // 1) clean up old data
-                nseInstrumentService.purgeExpiredOptionDocs();
-
-                // 2) load only CURRENT-WEEK CE/PE into nse_instruments (IST day window)
-                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
-
-                // 3) save all NIFTY FUTURES (your existing method)
-                nseInstrumentService.saveNiftyFuturesToMongo();
-
-                // 4) start FUT stream → first LTP → filterStrikesAroundLtp() → save 15+15 → subscribe CE/PE
-                streamNiftyFutAndTriggerCEPE();
-            } catch (Exception e) {
-                log.error("❌ init sequence failed", e);
-            }
-        })
-        .doOnError(e -> log.error("❌ ensureValidToken failed at startup", e))
-        .subscribe();
-}
 
     /**
      * STEP 6.1: fetch the actual WS URL (handles redirect or JSON token)
@@ -390,7 +387,9 @@ public void initAutoStart() {
     }
     log.info("🚀 (re)starting live stream for filtered CE/PE — {} keys found in Mongo.", initialKeys.size());
 
-    Mono.defer(() -> auth.ensureValidToken().then(fetchWebSocketUrl()))
+    Mono.defer(() -> auth.ensureValidToken()
+            .flatMap(valid -> valid ? fetchWebSocketUrl()
+                    : Mono.error(new IllegalStateException("token not available"))))
         // buildFilteredSubFrame pulls the latest keys on every (re)connect
         .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, this::buildFilteredSubFrame))
         .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
