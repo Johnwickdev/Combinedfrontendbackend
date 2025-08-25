@@ -2,7 +2,6 @@ package com.trader.backend.controller;
 
 
 import com.trader.backend.entity.NiftyPriceDTO;
-import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +18,6 @@ import java.util.List;
 public class NseInstrumentController {
 
     private final NseInstrumentService nseInstrumentService;
-    private final LiveFeedService liveFeedService;
 
     @PostMapping("/load")
     public Mono<ResponseEntity<String>> loadNseJsonToMongo() {
@@ -49,47 +47,35 @@ public class NseInstrumentController {
         List<String> keys = nseInstrumentService.getInstrumentKeysForLiveSubscription();
         return Mono.just(ResponseEntity.ok(keys));
     }
-    @PostMapping("/start-filtered-stream")
-    public ResponseEntity<String> startFilteredCEPEStream() {
-        liveFeedService.streamFilteredNiftyOptions();
-        return ResponseEntity.ok("📡 Started live stream for filtered CE/PE instruments.");
-    }
-@PostMapping("/nifty-fut-stream")
-public ResponseEntity<String> startNiftyFutStream() {
-    liveFeedService.streamNiftyFutAndTriggerCEPE();
-    return ResponseEntity.ok("📡 NIFTY FUT stream started");
-}
-@PostMapping("/save-nifty-futures")
-public Mono<ResponseEntity<String>> saveNiftyFutures() {
-    log.info("🚀 Triggered /api/nse/save-nifty-futures");
-    nseInstrumentService.saveNiftyFuturesToMongo();
-    return Mono.just(ResponseEntity.ok("✅ NIFTY FUTURES saved to MongoDB"));
-}
-@GetMapping("/nifty-future-ltp")
-public Mono<ResponseEntity<Double>> getNiftyFutureLtp() {
-    return nseInstrumentService.getNearestExpiryNiftyFutureLtp()
-            .map(ResponseEntity::ok)
-            .onErrorResume(e -> {
-                log.error("❌ Failed to fetch NIFTY FUT LTP", e);
-                return Mono.just(ResponseEntity.status(500).build());
-            });
-}
-@PostMapping("/nifty-fut-auto-stream")
-public ResponseEntity<String> autoStreamWithLtpAndSubscribe() {
-    liveFeedService.streamNiftyFutAndTriggerCEPE();
-    return ResponseEntity.ok("📡 NIFTY FUT LTP extracted, CE/PE filtered, and live stream started ✅");
-}
-    @PostMapping("/refresh-current-week")
-public ResponseEntity<String> refreshCurrentWeek() {
-    // Uses IST Fri→Wed rule to keep only this Wednesday’s expiry in nse_instruments
-    nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
-    return ResponseEntity.ok("✅ Refreshed nse_instruments for THIS WEEK (Fri→Wed IST)");
-}
 
-@PostMapping("/purge-expired")
-public ResponseEntity<String> purgeExpired() {
-    nseInstrumentService.purgeExpiredOptionDocs();
-    return ResponseEntity.ok("🧹 Purged expired docs from nse_instruments & filtered_nifty_premiums");
-}
+    @PostMapping("/save-nifty-futures")
+    public Mono<ResponseEntity<String>> saveNiftyFutures() {
+        log.info("🚀 Triggered /api/nse/save-nifty-futures");
+        nseInstrumentService.saveNiftyFuturesToMongo();
+        return Mono.just(ResponseEntity.ok("✅ NIFTY FUTURES saved to MongoDB"));
+    }
+
+    @GetMapping("/nifty-future-ltp")
+    public Mono<ResponseEntity<Double>> getNiftyFutureLtp() {
+        return nseInstrumentService.getNearestExpiryNiftyFutureLtp()
+                .map(ResponseEntity::ok)
+                .onErrorResume(e -> {
+                    log.error("❌ Failed to fetch NIFTY FUT LTP", e);
+                    return Mono.just(ResponseEntity.status(500).build());
+                });
+    }
+
+    @PostMapping("/refresh-current-week")
+    public ResponseEntity<String> refreshCurrentWeek() {
+        // Uses IST Fri→Wed rule to keep only this Wednesday’s expiry in nse_instruments
+        nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+        return ResponseEntity.ok("✅ Refreshed nse_instruments for THIS WEEK (Fri→Wed IST)");
+    }
+
+    @PostMapping("/purge-expired")
+    public ResponseEntity<String> purgeExpired() {
+        nseInstrumentService.purgeExpiredOptionDocs();
+        return ResponseEntity.ok("🧹 Purged expired docs from nse_instruments & filtered_nifty_premiums");
+    }
 
 }
