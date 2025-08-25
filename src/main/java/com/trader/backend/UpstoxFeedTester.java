@@ -14,6 +14,9 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class UpstoxFeedTester {
 
     // ← FILL THESE IN
@@ -21,6 +24,8 @@ public class UpstoxFeedTester {
     private static final String UPSTOX_API_SECRET    = "ofye1h1t8e";
     private static final String REDIRECT_URI         = "https://e186-2406-7400-ce-e9fa-65d2-c857-98a7-9171.ngrok-free.app/";
     private static final String ONE_TIME_CODE        = "-LELG-";
+
+    private static final Logger log = LoggerFactory.getLogger(UpstoxFeedTester.class);
 
     public static void main(String[] args) throws InterruptedException {
         ObjectMapper mapper = new ObjectMapper();
@@ -43,11 +48,11 @@ public class UpstoxFeedTester {
                 .block(Duration.ofSeconds(10));
 
         if (tok == null || tok.get("access_token") == null) {
-            System.err.println("❌ Failed to exchange code: " + tok);
+            log.error("Failed to exchange code: {}", tok);
             System.exit(1);
         }
         String accessToken = tok.get("access_token").toString();
-        System.out.println("✅ Access token: " + accessToken);
+        log.info("Access token: {}", accessToken);
 
         // 2️⃣ Call authorize to get WS URL
         WebClient feedClient = WebClient.builder()
@@ -66,14 +71,14 @@ public class UpstoxFeedTester {
                 })
                 .block(Duration.ofSeconds(10));
 
-        System.out.println("📡 WS URL = " + wsUrl);
+        log.info("WS URL = {}", wsUrl);
 
         // 3️⃣ Open WebSocket and print incoming messages for 20s
         ReactorNettyWebSocketClient wsClient = new ReactorNettyWebSocketClient();
         wsClient.execute(URI.create(wsUrl), session ->
                 session.receive()
                         .map(WebSocketMessage::getPayloadAsText)
-                        .doOnNext(msg -> System.out.println("⏳ tick → " + msg))
+                        .doOnNext(msg -> log.debug("tick → {}", msg))
                         .then()
         ).subscribe();
 

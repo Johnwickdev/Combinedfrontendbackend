@@ -4,8 +4,12 @@ import java.io.*;
 import java.net.URL;
 import java.nio.file.*;
 import java.util.zip.GZIPInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NSEDownloader {
+
+    private static final Logger log = LoggerFactory.getLogger(NSEDownloader.class);
 
     public static void downloadAndExtractNSEFile() {
         try {
@@ -19,7 +23,7 @@ public class NSEDownloader {
             // Download
             try (InputStream in = new URL(downloadUrl).openStream()) {
                 Files.copy(in, gzPath, StandardCopyOption.REPLACE_EXISTING);
-                System.out.println("✅ NSE.json.gz downloaded.");
+                log.info("NSE.json.gz downloaded.");
             }
 
             // Extract
@@ -30,11 +34,11 @@ public class NSEDownloader {
                 while ((len = gis.read(buffer)) != -1) {
                     out.write(buffer, 0, len);
                 }
-                System.out.println("✅ NSE.json extracted.");
+                log.info("NSE.json extracted.");
             }
 
         } catch (Exception e) {
-            System.err.println("❌ Failed to download/extract NSE file: " + e.getMessage());
+            log.error("Failed to download/extract NSE file: {}", e.getMessage());
         }
     }
 
