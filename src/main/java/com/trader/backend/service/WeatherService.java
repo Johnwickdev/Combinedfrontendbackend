@@ -1,5 +1,7 @@
 package com.trader.backend.service;
 
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -15,23 +17,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * instance is returned instead.
  */
 @Service
+@RequiredArgsConstructor
 public class WeatherService {
 
-    private final WebClient webClient;
+    private final @Qualifier("weatherClient") WebClient webClient;
     private final AtomicReference<WeatherResponse> cache = new AtomicReference<>();
-
-    /**
-     * Default constructor used by Spring.  It configures a WebClient pointing to
-     * an open API, but any {@link WebClient} can be supplied for testing.
-     */
-    public WeatherService(WebClient.Builder builder) {
-        this(builder.baseUrl("https://api.open-meteo.com/v1/forecast").build());
-    }
-
-    // Visible for tests
-    WeatherService(WebClient webClient) {
-        this.webClient = webClient;
-    }
 
     /**
      * Fetches current weather for the given coordinates.
