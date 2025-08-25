@@ -84,23 +84,7 @@ private final AtomicBoolean started = new AtomicBoolean(false);
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
                 .take(1)
-                .subscribe(ev -> {
-                    if (mockMode) {
-                        log.info("🧪 Mock mode enabled - skipping live feed startup");
-                        return;
-                    }
-                    if (started.compareAndSet(false, true)) {
-                        log.info("OAuth success — starting live streaming…");
-                        try {
-                            nseInstrumentService.purgeExpiredOptionDocs();
-                            nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
-                            nseInstrumentService.saveNiftyFuturesToMongo();
-                            streamNiftyFutAndTriggerCEPE();
-                        } catch (Exception e) {
-                            log.error("❌ init sequence failed", e);
-                        }
-                    }
-                });
+                .subscribe(ev -> initLiveWebSocket());
 
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
@@ -108,6 +92,24 @@ private final AtomicBoolean started = new AtomicBoolean(false);
                     log.warn("Auth token expired or refresh failed; waiting for re-login");
                     started.set(false);
                 });
+    }
+
+    public void initLiveWebSocket() {
+        if (mockMode) {
+            log.info("🧪 Mock mode enabled - skipping live feed startup");
+            return;
+        }
+        if (started.compareAndSet(false, true)) {
+            log.info("OAuth success — starting live streaming…");
+            try {
+                nseInstrumentService.purgeExpiredOptionDocs();
+                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+                nseInstrumentService.saveNiftyFuturesToMongo();
+                streamNiftyFutAndTriggerCEPE();
+            } catch (Exception e) {
+                log.error("❌ init sequence failed", e);
+            }
+        }
     }
 
     /**
@@ -387,9 +389,15 @@ private final AtomicBoolean started = new AtomicBoolean(false);
     }
     log.info("🚀 (re)starting live stream for filtered CE/PE — {} keys found in Mongo.", initialKeys.size());
 
-    Mono.defer(() -> auth.ensureValidToken()
-            .flatMap(valid -> valid ? fetchWebSocketUrl()
-                    : Mono.error(new IllegalStateException("token not available"))))
+    auth.ensureValidToken()
+        .flatMap(valid -> {
+            if (!valid) {
+                optionsStreamStarted.set(false);
+                log.warn("⚠️ Upstox token not ready — skipping option stream start");
+                return Mono.empty();
+            }
+            return fetchWebSocketUrl();
+        })
         // buildFilteredSubFrame pulls the latest keys on every (re)connect
         .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, this::buildFilteredSubFrame))
         .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
@@ -433,7 +441,7 @@ private final AtomicBoolean started = new AtomicBoolean(false);
             log.info("🧹 filtered CE/PE stream terminated: {}", sig);
         })
         .subscribe();
-}
+    }
 public void streamSingleInstrument(String instrumentKey) {
     log.info("🚀 Starting live stream for instrument → {}", instrumentKey);
 
@@ -500,6 +508,11 @@ public MongoTemplate getMongoTemplate() {
 }
 public void streamNiftyFutAndTriggerCEPE() {
     log.info("🚀 Subscribing to NIFTY FUT to extract LTP and filter CE/PE...");
+
+    if (auth.currentToken() == null) {
+        log.warn("⚠️ Cannot start NIFTY FUT stream — token not available");
+        return;
+    }
 
     try {
         File file = new File("src/main/resources/data/NSE.json");

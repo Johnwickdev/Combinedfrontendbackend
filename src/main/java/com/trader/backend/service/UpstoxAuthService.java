@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.upstox.ApiClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -36,6 +37,7 @@ public class UpstoxAuthService {
     private final WebClient webClient = WebClient.create("https://api.upstox.com/v2");
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;
+    private final LiveFeedService liveFeed;
 
     @Value("${upstox.apiKey:}")
     private String apiKey;
@@ -52,8 +54,9 @@ public class UpstoxAuthService {
 
     private final Sinks.Many<AuthEvent> authEvents = Sinks.many().replay().latest();
 
-    public UpstoxAuthService(ApiClient apiClient) {
+    public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeed) {
         this.apiClient = apiClient;
+        this.liveFeed = liveFeed;
     }
 
     /**
@@ -106,6 +109,7 @@ public class UpstoxAuthService {
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     log.info("✅ access_token saved ({} min left, expires {})", ttl / 60, Instant.ofEpochSecond(exp));
+                    liveFeed.initLiveWebSocket();
                 })
                 .then();
     }
