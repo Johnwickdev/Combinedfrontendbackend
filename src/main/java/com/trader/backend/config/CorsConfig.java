@@ -15,23 +15,21 @@ import java.util.List;
 @EnableWebMvc
 public class CorsConfig {
 
-    @Value("${FRONTEND_ORIGIN:https://frontendfortheautobot-7u7woqq2m-johnwicks-projects-025aea65.vercel.app}")
-    private String frontendOrigin;
+    @Value("${cors.allowedOrigins:https://frontendfortheautobot.vercel.app}")
+    private String allowedOrigins;
 
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowCredentials(true);
-
-        // Allow the deployed frontend and local development
-        config.setAllowedOrigins(List.of(frontendOrigin, "http://localhost:4200"));
-
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowCredentials(false);
+        config.setAllowedOrigins(List.of(allowedOrigins));
+        config.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+        config.setAllowedMethods(List.of("GET"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/auth/url", config);
         source.registerCorsConfiguration("/auth/status", config);
+        source.registerCorsConfiguration("/md/candles", config);
+        source.registerCorsConfiguration("/md/stream", config);
 
         return new CorsFilter(source);
     }
