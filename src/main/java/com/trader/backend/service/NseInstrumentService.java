@@ -359,6 +359,59 @@ for (NseInstrument i : all){
         log.error("❌ Failed to parse or save NIFTY FUT records", e);
     }
 }
+
+// helper: choose nearest non-expired NIFTY FUT using IST 3:30 PM cutoff
+private Optional<NseInstrument> selectCurrentNiftyFuture(List<NseInstrument> futs) {
+    if (futs == null || futs.isEmpty()) return Optional.empty();
+
+    // de-duplicate by instrument_key
+    Map<String, NseInstrument> unique = futs.stream()
+            .collect(Collectors.toMap(NseInstrument::getInstrument_key, f -> f, (a, b) -> a));
+
+    ZonedDateTime now = ZonedDateTime.now(IST);
+    List<String> otherStatuses = new ArrayList<>();
+    NseInstrument chosen = null;
+    ZonedDateTime chosenExpiry = null;
+
+    List<NseInstrument> sorted = unique.values().stream()
+            .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+            .toList();
+
+    for (NseInstrument f : sorted) {
+        LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
+        ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
+        boolean expired = now.isAfter(cutoff);
+        String month = extractMonth(f.getTrading_symbol());
+        log.info("📄 {} | expiry={} IST {}", f.getTrading_symbol(), cutoff, expired ? "[expired]" : "[valid]");
+        if (expired) {
+            otherStatuses.add(month + " expired");
+        } else if (chosen == null) {
+            chosen = f;
+            chosenExpiry = cutoff;
+        } else {
+            otherStatuses.add(month + " later");
+        }
+    }
+
+    if (chosen == null) {
+        log.warn("⚠️ No non-expired NIFTY FUT contract found.");
+        return Optional.empty();
+    }
+
+    log.info("Chosen current NIFTY FUT = {} | expiry={} IST (picked as nearest non-expired vs [{}])",
+            chosen.getTrading_symbol(),
+            chosenExpiry,
+            String.join(", ", otherStatuses));
+
+    return Optional.of(chosen);
+}
+
+private String extractMonth(String tradingSymbol) {
+    if (tradingSymbol == null) return "";
+    String[] parts = tradingSymbol.split(" ");
+    return parts.length >= 4 ? parts[3] : tradingSymbol;
+}
+
 public Mono<Double> getNearestExpiryNiftyFutureLtp() {
     // 1. Fetch all saved NIFTY FUT contracts
     Query query = new Query();
@@ -373,19 +426,15 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
         return Mono.error(new RuntimeException("No NIFTY FUT data in DB"));
     }
 
-    // 2. Filter contracts whose expiry is after now
-    long now = Instant.now().toEpochMilli();
-    Optional<NseInstrument> nearestExpiry = niftyFuts.stream()
-        .filter(f -> f.getExpiry() > now)
-        .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
-        .findFirst();
+    // 2. Choose nearest non-expired future using IST cutoff
+    Optional<NseInstrument> current = selectCurrentNiftyFuture(niftyFuts);
 
-    if (nearestExpiry.isEmpty()) {
+    if (current.isEmpty()) {
         log.error("❌ No valid NIFTY FUT contract with future expiry.");
         return Mono.error(new RuntimeException("No future expiry NIFTY FUT found"));
     }
 
-    String instrumentKey = nearestExpiry.get().getInstrument_key();
+    String instrumentKey = current.get().getInstrument_key();
     log.info("📌 Selected NIFTY FUT key for LTP: " + instrumentKey);
 
     // 3. Call Upstox LTP API
@@ -432,16 +481,12 @@ private void refreshNiftyFuturesIfNeeded() {
 
 private Optional<String> nearestNiftyFutureKey() {
     refreshNiftyFuturesIfNeeded();
-    long now = System.currentTimeMillis();
     Query q = new Query(Criteria.where("segment").is("NSE_FO")
             .and("instrumentType").is("FUT")
             .and("name").is("NIFTY")
-            .and("expiry").gt(now));
-    return mongoTemplate.find(q, NseInstrument.class, "nifty_futures")
-            .stream()
-            .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
-            .map(NseInstrument::getInstrument_key)
-            .findFirst();
+            .and("lot_size").is(75));
+    List<NseInstrument> futs = mongoTemplate.find(q, NseInstrument.class, "nifty_futures");
+    return selectCurrentNiftyFuture(futs).map(NseInstrument::getInstrument_key);
 }
 
 public void refreshNiftyOptionsCurrentWeek() {
