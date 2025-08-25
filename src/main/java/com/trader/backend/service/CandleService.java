@@ -7,6 +7,7 @@ import com.influxdb.query.FluxTable;
 import com.trader.backend.entity.NseInstrument;
 import com.trader.backend.repository.NseInstrumentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -20,6 +21,12 @@ import java.util.*;
 public class CandleService {
     private final InfluxDBClient influxDBClient;
     private final NseInstrumentRepository repo;
+
+    @Value("${influx.org:}")
+    private String influxOrg;
+
+    @Value("${influx.bucket:}")
+    private String influxBucket;
 
     private static final Set<String> ALLOWED_TF = Set.of("1m","3m","5m","15m");
 
@@ -39,13 +46,12 @@ public class CandleService {
         };
         String start = "-" + (unit.toMinutes()*lb) + "m";
         QueryApi queryApi = influxDBClient.getQueryApi();
-        String bucket = influxDBClient.getOptions().getBucket();
         return Flux.fromIterable(keys)
-                .flatMap(key -> Mono.fromCallable(() -> queryForInstrument(queryApi, bucket, key, tf, start)))
+                .flatMap(key -> Mono.fromCallable(() -> queryForInstrument(queryApi, key, tf, start)))
                 .collectList();
     }
 
-    private CandleResponse queryForInstrument(QueryApi queryApi, String bucket, String key, String tf, String start) {
+    private CandleResponse queryForInstrument(QueryApi queryApi, String key, String tf, String start) {
         Optional<NseInstrument> opt = repo.findById(key);
         if (opt.isEmpty()) {
             return new CandleResponse(key, tf, List.of());
@@ -53,41 +59,71 @@ public class CandleService {
         String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
                 "nifty_fut_ticks" : "nifty_option_ticks";
 
-        String fluxTemplate = """
-price = from(bucket: "%s")
+        Map<Instant, CandleBuilder> map = new HashMap<>();
+
+        String tpl = """
+from(bucket: "%s")
   |> range(start: %s)
-  |> filter(fn: (r) => r._measurement == "%s" and r.instrumentKey == "%s" and r._field == "ltp")
-  |> aggregateWindow(every: %s, fn: (tables=<-) => tables |> ohlc())
-  |> rename(columns: {open: "o", high: "h", low: "l", close: "c"})
-  |> keep(columns: ["_time","o","h","l","c"])
-vol = from(bucket: "%s")
-  |> range(start: %s)
-  |> filter(fn: (r) => r._measurement == "%s" and r.instrumentKey == "%s" and r._field == "volume")
-  |> aggregateWindow(every: %s, fn: sum)
-  |> rename(columns: {_value: "v"})
-  |> keep(columns: ["_time","v"])
-join(tables: {price: price, vol: vol}, on: ["_time"])
-  |> sort(columns: ["_time"])
+  |> filter(fn: (r) => r._measurement == "%s" and r.instrumentKey == "%s" and r._field == "%s")
+  |> aggregateWindow(every: %s, fn: %s, createEmpty: false)
+  |> keep(columns: ["_time","_value"])
+  |> rename(columns: {_value: "%s"})
 """;
 
-        String flux = String.format(fluxTemplate,
-                bucket, start, measurement, key, tf,
-                bucket, start, measurement, key, tf);
+        merge(queryApi.query(String.format(tpl, influxBucket, start, measurement, key, "ltp", tf, "last", "c"), influxOrg), "c", map);
+        merge(queryApi.query(String.format(tpl, influxBucket, start, measurement, key, "ltp", tf, "first", "o"), influxOrg), "o", map);
+        merge(queryApi.query(String.format(tpl, influxBucket, start, measurement, key, "ltp", tf, "max", "h"), influxOrg), "h", map);
+        merge(queryApi.query(String.format(tpl, influxBucket, start, measurement, key, "ltp", tf, "min", "l"), influxOrg), "l", map);
+        merge(queryApi.query(String.format(tpl, influxBucket, start, measurement, key, "volume", tf, "sum", "v"), influxOrg), "v", map);
 
-        List<FluxTable> tables = queryApi.query(flux);
-        List<Candle> candles = new ArrayList<>();
+        List<Candle> candles = map.entrySet().stream()
+                .filter(e -> e.getValue().complete())
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> e.getValue().toCandle(e.getKey()))
+                .toList();
+
+        return new CandleResponse(key, tf, candles);
+    }
+
+    private void merge(List<FluxTable> tables, String column, Map<Instant, CandleBuilder> map) {
         for (FluxTable table : tables) {
             for (FluxRecord rec : table.getRecords()) {
-                Instant t = (Instant) rec.getValue("_time");
-                Double o = (Double) rec.getValue("o");
-                Double h = (Double) rec.getValue("h");
-                Double l = (Double) rec.getValue("l");
-                Double c = (Double) rec.getValue("c");
-                Number v = (Number) rec.getValue("v");
-                candles.add(new Candle(t.toString(), o, h, l, c, v == null ? 0L : v.longValue()));
+                Instant t = (Instant) rec.getValueByKey("_time");
+                CandleBuilder b = map.computeIfAbsent(t, k -> new CandleBuilder());
+                Object val = rec.getValueByKey(column);
+                switch (column) {
+                    case "o" -> b.o = toDouble(val);
+                    case "h" -> b.h = toDouble(val);
+                    case "l" -> b.l = toDouble(val);
+                    case "c" -> b.c = toDouble(val);
+                    case "v" -> b.v = toLong(val);
+                }
             }
         }
-        return new CandleResponse(key, tf, candles);
+    }
+
+    static Double toDouble(Object v) {
+        return Optional.ofNullable(v).map(x -> ((Number) x).doubleValue()).orElse(null);
+    }
+
+    static Long toLong(Object v) {
+        return Optional.ofNullable(v).map(x -> ((Number) x).longValue()).orElse(null);
+    }
+
+    private static class CandleBuilder {
+        Double o;
+        Double h;
+        Double l;
+        Double c;
+        Long v;
+
+        boolean complete() {
+            return o != null && h != null && l != null && c != null && v != null;
+        }
+
+        Candle toCandle(Instant t) {
+            return new Candle(t.toString(), o, h, l, c, v);
+        }
     }
 
     public record CandleResponse(String instrumentKey, String tf, List<Candle> candles) {}
