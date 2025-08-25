@@ -333,6 +333,7 @@ for (NseInstrument i : all){
                 .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
                 .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
                 .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
+                .filter(inst -> !inst.isWeekly())
                 .filter(inst -> inst.getLot_size() == 75)
                 .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
                 .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
@@ -350,7 +351,9 @@ for (NseInstrument i : all){
         if (!niftyFutures.isEmpty()) {
             mongoTemplate.dropCollection("nifty_futures");
             mongoTemplate.insert(niftyFutures, "nifty_futures");
-            log.info("💾 Saved to MongoDB collection: nifty_futures");
+            mongoTemplate.indexOps("nifty_futures")
+                    .ensureIndex(new org.springframework.data.mongodb.core.index.Index().on("expiry", Sort.Direction.ASC));
+            log.info("💾 Saved to MongoDB collection: nifty_futures (indexed on expiry)");
         } else {
             log.warn("⚠️ No matching NIFTY FUT records found.");
         }
@@ -479,14 +482,67 @@ private void refreshNiftyFuturesIfNeeded() {
     }
 }
 
-private Optional<String> nearestNiftyFutureKey() {
+public Optional<String> nearestNiftyFutureKey() {
     refreshNiftyFuturesIfNeeded();
-    Query q = new Query(Criteria.where("segment").is("NSE_FO")
-            .and("instrumentType").is("FUT")
-            .and("name").is("NIFTY")
-            .and("lot_size").is(75));
-    List<NseInstrument> futs = mongoTemplate.find(q, NseInstrument.class, "nifty_futures");
-    return selectCurrentNiftyFuture(futs).map(NseInstrument::getInstrument_key);
+
+    ZonedDateTime now = ZonedDateTime.now(IST);
+    long nowMs = now.toInstant().toEpochMilli();
+
+    // log first three futures to show decision trail
+    Query logQ = new Query(new Criteria().andOperator(
+            Criteria.where("segment").is("NSE_FO"),
+            Criteria.where("instrumentType").is("FUT"),
+            Criteria.where("name").is("NIFTY"),
+            Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
+            Criteria.where("weekly").is(false),
+            Criteria.where("lot_size").is(75)
+    )).with(Sort.by(Sort.Direction.ASC, "expiry")).limit(3);
+    List<NseInstrument> top = mongoTemplate.find(logQ, NseInstrument.class, "nifty_futures");
+    top.forEach(f -> {
+        LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
+        ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
+        boolean expired = now.isAfter(cutoff);
+        log.info("📄 {} | expiry={} IST {}", f.getTrading_symbol(), cutoff, expired ? "[expired]" : "[valid]");
+    });
+
+    // query DB for nearest non-expired future
+    Query q = new Query(new Criteria().andOperator(
+            Criteria.where("segment").is("NSE_FO"),
+            Criteria.where("instrumentType").is("FUT"),
+            Criteria.where("name").is("NIFTY"),
+            Criteria.where("underlying_key").is("NSE_INDEX|Nifty 50"),
+            Criteria.where("weekly").is(false),
+            Criteria.where("lot_size").is(75),
+            Criteria.where("expiry").gte(nowMs)
+    )).with(Sort.by(Sort.Direction.ASC, "expiry")).limit(1);
+
+    NseInstrument current = mongoTemplate.findOne(q, NseInstrument.class, "nifty_futures");
+    if (current == null) {
+        log.error("❌ No valid NIFTY FUT contract with future expiry.");
+        return Optional.empty();
+    }
+
+    // persist chosen contract
+    mongoTemplate.dropCollection("current_nifty_future");
+    mongoTemplate.insert(current, "current_nifty_future");
+
+    String chosenMonth = extractMonth(current.getTrading_symbol());
+    List<String> reasons = new ArrayList<>();
+    for (NseInstrument f : top) {
+        if (f.getInstrument_key().equals(current.getInstrument_key())) continue;
+        LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
+        ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
+        String m = extractMonth(f.getTrading_symbol());
+        if (now.isAfter(cutoff)) {
+            reasons.add(m + " expired on " + cutoff + " IST");
+        } else {
+            reasons.add(m + " later (" + cutoff + " IST)");
+        }
+    }
+    log.info("Chosen current NIFTY FUT = {} | expiry={} IST ({}).", current.getTrading_symbol(),
+            Instant.ofEpochMilli(current.getExpiry()).atZone(IST), String.join("; ", reasons));
+
+    return Optional.ofNullable(current.getInstrument_key());
 }
 
 public void refreshNiftyOptionsCurrentWeek() {

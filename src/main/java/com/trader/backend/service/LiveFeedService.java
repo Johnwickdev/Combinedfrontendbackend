@@ -42,9 +42,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
-import java.io.File;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -514,25 +511,17 @@ public void streamNiftyFutAndTriggerCEPE() {
         return;
     }
 
-    try {
-        File file = new File("src/main/resources/data/NSE.json");
-        NseInstrument[] instruments = om.readValue(file, NseInstrument[].class);
+    Optional<String> optKey = nseInstrumentService.nearestNiftyFutureKey();
+    if (optKey.isEmpty()) {
+        log.error("❌ No valid NIFTY FUT contract to subscribe.");
+        return;
+    }
+    String instrumentKey = optKey.get();
+    log.info("📦 Subscribing to NIFTY FUT: {}", instrumentKey);
 
-        NseInstrument nearestFut = Arrays.stream(instruments)
-                .filter(i -> "FUT".equalsIgnoreCase(i.getInstrumentType()))
-                .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
-                .filter(i -> "NSE_FO".equalsIgnoreCase(i.getSegment()))
-                .filter(i -> i.getUnderlying_key().equals("NSE_INDEX|Nifty 50"))
-                .sorted(Comparator.comparing(NseInstrument::getExpiry))
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("No NIFTY FUT found."));
-
-        String instrumentKey = nearestFut.getInstrument_key();
-        log.info("📦 Subscribing to NIFTY FUT: {}", instrumentKey);
-
-        fetchWebSocketUrl()
-                .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
-                .doOnNext(tick -> {
+    fetchWebSocketUrl()
+            .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
+            .doOnNext(tick -> {
                     try {
                         // ✅ Correct LTP path under fullFeed → marketFF → ltpc → ltp
                         JsonNode ltpNode = tick.path("feeds")
@@ -561,12 +550,8 @@ public void streamNiftyFutAndTriggerCEPE() {
                         log.error("⚠️ Failed to extract LTP or trigger filtering", ex);
                     }
                 })
-                .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
-                .subscribe();
-
-    } catch (Exception e) {
-        log.error("❌ Failed to load NIFTY FUT from file", e);
-    }
+            .doOnError(err -> log.error("❌ WebSocket stream failed:", err))
+            .subscribe();
 }
 public void writeNiftyFutLtpToInflux(double ltp, long timestamp) {
     Point point = Point
