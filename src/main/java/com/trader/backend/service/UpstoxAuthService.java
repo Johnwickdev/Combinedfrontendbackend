@@ -233,7 +233,7 @@ public class UpstoxAuthService {
 
         Map<String, Object> m = new HashMap<>();
         m.put("connected", connected);
-        m.put("expiresAt", exp);
+        m.put("expiresAt", (connected && exp > 0) ? Instant.ofEpochSecond(exp).toString() : null);
         m.put("remainingSeconds", connected ? exp - now : 0);
         return Mono.just(m);
     }
