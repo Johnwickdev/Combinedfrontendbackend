@@ -19,8 +19,8 @@ public class AuthController {
 
     private final UpstoxAuthService auth;
 
-    @Value("${FRONTEND_REDIRECT_URL:https://frontendfortheautobot-7u7woqq2m-johnwicks-projects-025aea65.vercel.app/dashboard}")
-    private String frontendRedirectUrl;
+    @Value("${frontend.dashboard-url}")
+    private String frontendDashboardUrl;
 
     /** Return the OAuth dialog URL for the frontend. */
     @GetMapping("/url")
@@ -30,7 +30,7 @@ public class AuthController {
 
     @GetMapping("/redirect-url")
     public Map<String, String> redirectUrl() {
-        return Map.of("url", frontendRedirectUrl);
+        return Map.of("url", frontendDashboardUrl);
     }
 
     /** Endpoint used by the Upstox redirect after login. */
@@ -47,7 +47,7 @@ public class AuthController {
                 log.error("Token exchange failed", e);
             }
             try {
-                response.sendRedirect(frontendRedirectUrl);
+                response.sendRedirect(frontendDashboardUrl);
             } catch (Exception e) {
                 log.error("Failed to redirect to frontend", e);
             }

@@ -21,11 +21,12 @@ stored (defaults to `logs`).
 
 ## Authentication
 
-The frontend redirect target used after a successful Upstox login can be
-configured via the `FRONTEND_REDIRECT_URL` environment variable. By default this
-points to the deployed Vercel frontend. The current value can be retrieved from
-the backend at `GET /auth/redirect-url`.
+The frontend dashboard URL used after a successful Upstox login can be
+configured via the `FRONTEND_DASHBOARD_URL` environment variable (property
+`frontend.dashboard-url`). By default this points to the deployed Vercel
+frontend. The current value can be retrieved from the backend at
+`GET /auth/redirect-url`.
 
-For CORS, set `FRONTEND_ORIGIN` to your frontend URL. It defaults to the deployed
-Vercel domain, while `http://localhost:4200` remains allowed for local
-development.
+For CORS, adjust the `cors.allowedOrigins` property if you need to allow
+additional origins. By default it allows the deployed Vercel domain and
+`http://localhost:4200` for local development.
