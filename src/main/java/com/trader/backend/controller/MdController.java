@@ -8,6 +8,7 @@ import com.trader.backend.events.LtpEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,36 +49,36 @@ public class MdController {
     }
 
     @GetMapping("/selection")
-    public Map<String, Object> selection() {
+    public ResponseEntity<Map<String, Object>> selection() {
         var sel = nseInstrumentService.currentSelectionData();
         String main = nseInstrumentService.nearestNiftyFutureKey().orElse("");
         List<String> opts = sel.keys().stream()
                 .filter(k -> !k.equals(main))
                 .toList();
-        return Map.of("mainInstrument", main, "options", opts);
+        return ResponseEntity.ok(Map.of("mainInstrument", main, "options", opts));
     }
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> stream(@RequestParam(value = "instrumentKey", required = false) List<String> keys,
-                                                ServerHttpResponse response) {
+    public Flux<ServerSentEvent<Map<String, Object>>> stream(@RequestParam(value = "instrumentKey", required = false) List<String> keys,
+                                                             ServerHttpResponse response) {
         response.getHeaders().set(HttpHeaders.CACHE_CONTROL, "no-cache");
         Flux<LtpEvent> flux = liveFeedService.ltpEvents();
         if (keys != null && !keys.isEmpty()) {
             Set<String> set = new HashSet<>(keys);
             flux = flux.filter(ev -> set.contains(ev.instrumentKey()));
         }
-        Flux<ServerSentEvent<String>> ticks = flux
+        Flux<ServerSentEvent<Map<String, Object>>> ticks = flux
                 .map(ev -> {
-                    String json = "{" +
-                            "\"instrumentKey\":\"" + ev.instrumentKey() + "\"," +
-                            "\"ts\":\"" + ev.timestamp().toString() + "\"," +
-                            "\"ltp\":" + ev.ltp() +
-                            "}";
-                    return ServerSentEvent.builder(json).event("tick").build();
+                    Map<String, Object> data = Map.of(
+                            "instrumentKey", ev.instrumentKey(),
+                            "ts", ev.timestamp().toString(),
+                            "ltp", ev.ltp()
+                    );
+                    return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
                 });
 
-        Flux<ServerSentEvent<String>> heartbeat = Flux.interval(Duration.ofSeconds(15))
-                .map(i -> ServerSentEvent.<String>builder().comment("hb").build());
+        Flux<ServerSentEvent<Map<String, Object>>> heartbeat = Flux.interval(Duration.ofSeconds(15))
+                .map(i -> ServerSentEvent.<Map<String, Object>>builder().comment("hb").build());
 
         return Flux.merge(ticks, heartbeat);
     }
