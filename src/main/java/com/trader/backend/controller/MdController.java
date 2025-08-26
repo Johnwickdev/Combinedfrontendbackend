@@ -26,10 +26,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/md")
@@ -61,16 +61,22 @@ public class MdController {
         List<String> opts = sel.keys().stream()
                 .filter(k -> !k.equals(main))
                 .toList();
-        return ResponseEntity.ok(Map.of("mainInstrument", main, "options", opts));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("mainInstrument", main);
+        payload.put("options", opts);
+        return ResponseEntity.ok(payload);
     }
 
     @GetMapping("/last-ltp")
     public Map<String, Object> lastLtp(@RequestParam("instrumentKey") String instrumentKey) {
         return liveFeedService.lastQuote(instrumentKey)
-                .map(q -> Map.of(
-                        "instrumentKey", instrumentKey,
-                        "ltp", q.ltp(),
-                        "ts", q.ts().toString()))
+                .map(q -> {
+                    Map<String, Object> body = new LinkedHashMap<>();
+                    body.put("instrumentKey", instrumentKey);
+                    body.put("ltp", q.ltp());
+                    body.put("ts", q.ts().toString());
+                    return body;
+                })
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no quote"));
     }
 
@@ -90,17 +96,18 @@ public class MdController {
                 }
                 Flux<ServerSentEvent<Map<String, Object>>> ticks = flux
                         .map(ev -> {
-                            Map<String, Object> data = Map.of(
-                                    "instrumentKey", ev.instrumentKey(),
-                                    "ts", ev.timestamp().toString(),
-                                    "ltp", ev.ltp()
-                            );
+                            Map<String, Object> data = new LinkedHashMap<>();
+                            data.put("instrumentKey", ev.instrumentKey());
+                            data.put("ts", ev.timestamp().toString());
+                            data.put("ltp", ev.ltp());
                             return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
                         });
                 return Flux.merge(ticks, heartbeat);
             } else {
-                ServerSentEvent<Map<String, Object>> status = ServerSentEvent.<Map<String, Object>>builder(
-                        Map.of("marketClosed", true, "message", "Market closed — showing last price"))
+                Map<String, Object> statusData = new LinkedHashMap<>();
+                statusData.put("marketClosed", true);
+                statusData.put("message", "Market closed — showing last price");
+                ServerSentEvent<Map<String, Object>> status = ServerSentEvent.<Map<String, Object>>builder(statusData)
                         .event("status").build();
                 List<String> targetKeys;
                 if (keys != null && !keys.isEmpty()) {
@@ -113,18 +120,19 @@ public class MdController {
                         .filter(e -> e.getValue().isPresent())
                         .map(e -> {
                             LiveFeedService.LatestQuote q = e.getValue().get();
-                            Map<String, Object> data = Map.of(
-                                    "instrumentKey", e.getKey(),
-                                    "ts", q.ts().toString(),
-                                    "ltp", q.ltp());
+                            Map<String, Object> data = new LinkedHashMap<>();
+                            data.put("instrumentKey", e.getKey());
+                            data.put("ts", q.ts().toString());
+                            data.put("ltp", q.ltp());
                             return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
                         });
                 return Flux.merge(Flux.concat(Flux.just(status), tick), heartbeat);
             }
         } catch (Exception e) {
             log.error("SSE stream init failed", e);
-            return Flux.just(ServerSentEvent.<Map<String, Object>>builder(
-                    Map.of("error", "stream-initialization-failed"))
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("error", "stream-initialization-failed");
+            return Flux.just(ServerSentEvent.<Map<String, Object>>builder(err)
                     .event("error").build());
         }
     }

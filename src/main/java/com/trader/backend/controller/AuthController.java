@@ -10,6 +10,7 @@ import reactor.core.publisher.Mono;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/auth")
@@ -25,12 +26,16 @@ public class AuthController {
     /** Return the OAuth dialog URL for the frontend. */
     @GetMapping("/url")
     public Map<String, String> loginUrl() {
-        return Map.of("url", auth.buildAuthUrl());
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("url", auth.buildAuthUrl());
+        return body;
     }
 
     @GetMapping("/redirect-url")
     public Map<String, String> redirectUrl() {
-        return Map.of("url", frontendDashboardUrl);
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("url", frontendDashboardUrl);
+        return body;
     }
 
     /** Endpoint used by the Upstox redirect after login. */
