@@ -44,13 +44,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.Map;
-import org.springframework.context.event.EventListener;
-import com.trader.backend.events.FilteredPremiumsUpdatedEvent;
 import com.trader.backend.events.LtpEvent;
 
 
@@ -69,11 +68,14 @@ public class LiveFeedService {
     private final QuantAnalysisService quantAnalysisService;
     @Value("${app.mock:false}")
     private boolean mockMode;
-// Tracks currently subscribed CE/PE instruments for debug/monitoring
-private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
 private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
-private final AtomicBoolean started = new AtomicBoolean(false);
+
+public enum OrchestratorState { IDLE, RUNNING, READY }
+private final AtomicReference<OrchestratorState> orchestratorState = new AtomicReference<>(OrchestratorState.IDLE);
+private final AtomicReference<String> lastSelectionSignature = new AtomicReference<>(null);
+private final AtomicBoolean selectionComputed = new AtomicBoolean(false);
+private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet();
 
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
@@ -114,7 +116,8 @@ private final AtomicBoolean started = new AtomicBoolean(false);
                 .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
                 .subscribe(e -> {
                     log.warn("Auth token expired or refresh failed; waiting for re-login");
-                    started.set(false);
+                    orchestratorState.set(OrchestratorState.IDLE);
+                    selectionComputed.set(false);
                 });
 
         Flux.interval(Duration.ofMillis(influxSummaryMs))
@@ -142,16 +145,20 @@ private final AtomicBoolean started = new AtomicBoolean(false);
             log.info("🧪 Mock mode enabled - skipping live feed startup");
             return;
         }
-        if (started.compareAndSet(false, true)) {
-            log.info("OAuth success — starting live streaming…");
-            try {
-                nseInstrumentService.purgeExpiredOptionDocs();
-                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
-                nseInstrumentService.saveNiftyFuturesToMongo();
-                streamNiftyFutAndTriggerCEPE();
-            } catch (Exception e) {
-                log.error("❌ init sequence failed", e);
-            }
+        if (!orchestratorState.compareAndSet(OrchestratorState.IDLE, OrchestratorState.RUNNING)) {
+            return;
+        }
+        log.info("OAuth success — starting market pipeline...");
+        try {
+            nseInstrumentService.ensureNseJsonLoaded();
+            nseInstrumentService.purgeExpiredOptionDocs();
+            nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+            nseInstrumentService.saveNiftyFuturesToMongo();
+            streamNiftyFutAndTriggerCEPE();
+        } catch (Exception e) {
+            log.error("❌ init sequence failed", e);
+        } finally {
+            orchestratorState.set(OrchestratorState.READY);
         }
     }
 
@@ -410,21 +417,27 @@ private final AtomicBoolean started = new AtomicBoolean(false);
 
         return local.asFlux();
     }
-    public void streamFilteredNiftyOptions() {
-    // Prevent duplicate WS streams for the same filtered list
-    if (!optionsStreamStarted.compareAndSet(false, true)) {
-        log.info("🔁 filtered CE/PE stream already running; keeping existing connection.");
+public void streamFilteredNiftyOptions() {
+    NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
+    List<String> desired = sel.keys();
+    Set<String> toAdd = new HashSet<>(desired);
+    toAdd.removeAll(currentlySubscribedKeys);
+    Set<String> toRemove = new HashSet<>(currentlySubscribedKeys);
+    toRemove.removeAll(new HashSet<>(desired));
+
+    if (toAdd.isEmpty() && toRemove.isEmpty() && optionsStreamStarted.get()) {
+        log.info("Orchestration skipped — selection unchanged (expiry={})",
+                nseInstrumentService.formatExpiry(sel.expiry()));
         return;
     }
 
-    // Sanity check: do we have anything to subscribe to right now?
-    var initialKeys = nseInstrumentService.getInstrumentKeysForLiveSubscription();
-    if (initialKeys.isEmpty()) {
-        optionsStreamStarted.set(false);
-        log.warn("⚠️ filtered_nifty_premiums is empty — skipping option stream start for now.");
+    currentlySubscribedKeys.addAll(toAdd);
+    currentlySubscribedKeys.removeAll(toRemove);
+    log.info("Subscriptions updated: +{} / -{} (total={})", toAdd.size(), toRemove.size(), desired.size());
+
+    if (!optionsStreamStarted.compareAndSet(false, true)) {
         return;
     }
-    log.info("🚀 (re)starting live stream for filtered CE/PE — {} keys found in Mongo.", initialKeys.size());
 
     auth.ensureValidToken()
         .flatMap(valid -> {
@@ -435,8 +448,7 @@ private final AtomicBoolean started = new AtomicBoolean(false);
             }
             return fetchWebSocketUrl();
         })
-        // buildFilteredSubFrame pulls the latest keys on every (re)connect
-        .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, this::buildFilteredSubFrame))
+        .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, () -> buildSubFrame(desired)))
         .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
         .doOnSubscribe(s -> log.info("📡 Subscribed to filtered CE/PE (auto-resub on reconnect)"))
         .doOnNext(tick -> {
@@ -470,16 +482,15 @@ private final AtomicBoolean started = new AtomicBoolean(false);
             });
         })
         .doOnError(err -> {
-            optionsStreamStarted.set(false); // allow a fresh start after a fatal error
+            optionsStreamStarted.set(false);
             log.error("❌ filtered option feed failed:", err);
         })
         .doFinally(sig -> {
-            // If the stream ever completes/cancels, allow a fresh start later
             optionsStreamStarted.set(false);
             log.info("🧹 filtered CE/PE stream terminated: {}", sig);
         })
         .subscribe();
-    }
+}
 public void streamSingleInstrument(String instrumentKey) {
     log.info("🚀 Starting live stream for instrument → {}", instrumentKey);
 
@@ -536,6 +547,19 @@ public byte[] buildSubFrame(String instrumentKey) {
 
     return frame.toString().getBytes(StandardCharsets.UTF_8);
 }
+
+private byte[] buildSubFrame(List<String> keys) {
+    ObjectNode frame = om.createObjectNode();
+    frame.put("guid", "filtered-options-guid");
+    frame.put("method", "sub");
+
+    ObjectNode data = frame.putObject("data");
+    data.put("mode", "full");
+    ArrayNode arr = data.putArray("instrumentKeys");
+    keys.forEach(arr::add);
+
+    return frame.toString().getBytes(StandardCharsets.UTF_8);
+}
 public MongoTemplate getMongoTemplate() {
     return mongoTemplate;
 }
@@ -573,8 +597,21 @@ public void streamNiftyFutAndTriggerCEPE() {
                         maybeLogLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
 
-                        nseInstrumentService.filterStrikesAroundLtp(ltp);
-                        streamFilteredNiftyOptions();
+                        if (selectionComputed.compareAndSet(false, true)) {
+                            nseInstrumentService.filterStrikesAroundLtp(ltp);
+                            NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
+                            String sig = nseInstrumentService.selectionSignature(sel);
+                            if (sig.equals(lastSelectionSignature.get())) {
+                                log.info("Orchestration skipped — selection unchanged (expiry={})", nseInstrumentService.formatExpiry(sel.expiry()));
+                            } else {
+                                lastSelectionSignature.set(sig);
+                                streamFilteredNiftyOptions();
+                                log.info("Setup complete — FUT={} expiry={}; CE={}, PE={}; subscribed={}",
+                                        instrumentKey,
+                                        nseInstrumentService.formatExpiry(sel.expiry()),
+                                        sel.ceCount(), sel.peCount(), sel.keys().size());
+                            }
+                        }
                     } else {
                         log.warn("⚠️ LTP not found in tick — instrumentKey={}", instrumentKey);
                     }
@@ -586,28 +623,6 @@ public void streamNiftyFutAndTriggerCEPE() {
             .subscribe();
 }
 /** Builds a fresh SUB frame from the current filtered_nifty_premiums (15 CE + 15 PE). */
-private byte[] buildFilteredSubFrame() {
-    List<String> keys = nseInstrumentService.getInstrumentKeysForLiveSubscription();
-    if (keys.isEmpty()) {
-        log.warn("⚠️ No filtered instruments found in Mongo (filtered_nifty_premiums).");
-    } else {
-        // optional: track what we're subscribing to (debug)
-        subscribed.clear();
-        subscribed.addAll(keys);
-        log.info("📦 Will (re)subscribe {} instruments from filtered_nifty_premiums", keys.size());
-    }
-
-    ObjectNode frame = om.createObjectNode();
-    frame.put("guid", "filtered-options-guid");
-    frame.put("method", "sub");
-
-    ObjectNode data = frame.putObject("data");
-    data.put("mode", "full");
-    ArrayNode arr = data.putArray("instrumentKeys");
-    keys.forEach(arr::add);
-
-    return frame.toString().getBytes(StandardCharsets.UTF_8);
-}
 /**
  * Opens a WS and sends a fresh SUB frame per connection (frameSupplier is called on every connect).
  * Use this for dynamic lists that may change between reconnects.
@@ -709,10 +724,4 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
     }
 
 
-@EventListener
-public void onFilteredPremiumsUpdated(FilteredPremiumsUpdatedEvent e) {
-    log.info("📬 Filtered premiums updated: {} docs for expiry={} → (re)subscribing…",
-            e.getCount(), e.getExpiryEpochMs());
-    streamFilteredNiftyOptions();  // this already builds the sub-frame from Mongo and subscribes
-}
 }
