@@ -29,6 +29,7 @@ import reactor.util.retry.Retry;
 import javax.annotation.PostConstruct;
 import java.net.URI;
 import java.time.Duration;
+import java.time.ZoneId;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
@@ -77,6 +78,19 @@ private final AtomicReference<String> lastSelectionSignature = new AtomicReferen
 private final AtomicBoolean selectionComputed = new AtomicBoolean(false);
 private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet();
 
+    private final ConcurrentHashMap<String, LatestQuote> lastLtp = new ConcurrentHashMap<>();
+    private final AtomicReference<String> initializedForDate = new AtomicReference<>("");
+
+    public record LatestQuote(double ltp, Instant ts) {}
+
+    public Optional<LatestQuote> lastQuote(String key) {
+        return Optional.ofNullable(lastLtp.get(key));
+    }
+
+    public Set<String> cachedKeys() {
+        return lastLtp.keySet();
+    }
+
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
 
@@ -109,8 +123,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     public void subscribeToAuthEvents() {
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
-                .take(1)
-                .subscribe(ev -> initLiveWebSocket());
+                .subscribe(ev -> connectIfOpenOrSchedule());
 
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
@@ -140,9 +153,26 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                 });
     }
 
+    public void connectIfOpenOrSchedule() {
+        Instant now = Instant.now();
+        if (MarketHours.isOpen(now)) {
+            initLiveWebSocket();
+        } else {
+            Instant next = MarketHours.nextOpenAfter(now);
+            log.info("Market closed — scheduling live feed start at {}", next);
+            long delay = Duration.between(now, next).toMillis();
+            Mono.delay(Duration.ofMillis(delay)).subscribe(v -> initLiveWebSocket());
+        }
+    }
+
     public void initLiveWebSocket() {
         if (mockMode) {
             log.info("🧪 Mock mode enabled - skipping live feed startup");
+            return;
+        }
+        Instant now = Instant.now();
+        if (!MarketHours.isOpen(now)) {
+            log.info("Market closed — skipping WS connect until {}", MarketHours.nextOpenAfter(now));
             return;
         }
         if (!orchestratorState.compareAndSet(OrchestratorState.IDLE, OrchestratorState.RUNNING)) {
@@ -150,10 +180,14 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         }
         log.info("OAuth success — starting market pipeline...");
         try {
-            nseInstrumentService.ensureNseJsonLoaded();
-            nseInstrumentService.purgeExpiredOptionDocs();
-            nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
-            nseInstrumentService.saveNiftyFuturesToMongo();
+            String today = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString();
+            if (!today.equals(initializedForDate.get())) {
+                nseInstrumentService.ensureNseJsonLoaded();
+                nseInstrumentService.purgeExpiredOptionDocs();
+                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+                nseInstrumentService.saveNiftyFuturesToMongo();
+                initializedForDate.set(today);
+            }
             streamNiftyFutAndTriggerCEPE();
         } catch (Exception e) {
             log.error("❌ init sequence failed", e);
@@ -468,6 +502,7 @@ public void streamFilteredNiftyOptions() {
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     maybeLogLtp(instrumentKey, ltp, ts);
                     writeTickToInflux(instrumentKey, feed, ts);
+                    lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
 
                     var result = quantAnalysisService.analyze(instrumentKey, feed);
                     if (result.signal() != QuantAnalysisService.Signal.NONE) {
@@ -524,6 +559,7 @@ JsonNode ltpNode = tick.path("feeds")
                     maybeLogLtp(instrumentKey, ltp, ts);
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     writeTickToInflux(instrumentKey, tick.path("feeds").path(instrumentKey), ts);
+                    lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
                     nseInstrumentService.filterStrikesAroundLtp(ltp);
                 }
 
@@ -596,6 +632,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                         maybeLogLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
+                        lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
 
                         if (selectionComputed.compareAndSet(false, true)) {
                             nseInstrumentService.filterStrikesAroundLtp(ltp);
