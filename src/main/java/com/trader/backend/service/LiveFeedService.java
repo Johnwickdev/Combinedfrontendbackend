@@ -119,15 +119,21 @@ private final AtomicBoolean started = new AtomicBoolean(false);
 
         Flux.interval(Duration.ofMillis(influxSummaryMs))
                 .subscribe(i -> {
-                    long fut = futWrites.getAndSet(0);
-                    long opt = optWrites.getAndSet(0);
-                    long futFail = futWriteFails.getAndSet(0);
-                    long optFail = optWriteFails.getAndSet(0);
-                    log.info("Influx summary — FUT writes={}, OPT writes={} (last {}s)", fut, opt, influxSummaryMs / 1000);
+                    long fut = futWrites.get();
+                    long opt = optWrites.get();
+                    long futFail = futWriteFails.get();
+                    long optFail = optWriteFails.get();
+                    log.info("Influx summary — FUT writes={}, OPT writes={} (last {}s)",
+                            fut, opt, influxSummaryMs / 1000);
                     if (futFail > 0 || optFail > 0) {
-                        log.warn("Influx failures — FUT={} OPT={} lastError={}", futFail, optFail, lastInfluxError.get());
+                        log.warn("Influx failures — FUT={} OPT={} lastError={}",
+                                futFail, optFail, lastInfluxError.get());
                         lastInfluxError.set("");
                     }
+                    futWrites.addAndGet(-fut);
+                    optWrites.addAndGet(-opt);
+                    futWriteFails.addAndGet(-futFail);
+                    optWriteFails.addAndGet(-optFail);
                 });
     }
 

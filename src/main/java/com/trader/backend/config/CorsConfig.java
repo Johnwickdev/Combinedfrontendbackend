@@ -24,12 +24,10 @@ public class CorsConfig {
         config.setAllowCredentials(false);
         config.setAllowedOrigins(List.of(allowedOrigins));
         config.setAllowedHeaders(List.of("Content-Type", "Authorization"));
-        config.setAllowedMethods(List.of("GET"));
+        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/auth/status", config);
-        source.registerCorsConfiguration("/md/candles", config);
-        source.registerCorsConfiguration("/md/stream", config);
+        source.registerCorsConfiguration("/**", config);
 
         return new CorsFilter(source);
     }
