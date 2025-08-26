@@ -402,47 +402,41 @@ public String formatExpiry(long expiry) {
 }
 public void saveNiftyFuturesToMongo() {
     log.info("📂 Extracting NIFTY FUTURE records from NSE.json...");
+    ensureNseJsonLoaded(false);
+    List<NseInstrument> all = new ArrayList<>(nseCache);
+    for (NseInstrument i : all) {
+        if (i.getName() != null) i.setName(i.getName().trim());
+        if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
+        if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
+        if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+    }
+    // Step 1: Filter valid NIFTY FUTs
+    List<NseInstrument> niftyFutures = all.stream()
+            .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
+            .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
+            .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
+            .filter(inst -> !inst.isWeekly())
+            .filter(inst -> inst.getLot_size() == 75)
+            .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
+            .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
+            .toList();
 
-    try {
-        ensureNseJsonLoaded(false);
-        List<NseInstrument> all = new ArrayList<>(nseCache);
-        for (NseInstrument i : all) {
-            if (i.getName() != null) i.setName(i.getName().trim());
-            if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
-            if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
-        }
-        // Step 1: Filter valid NIFTY FUTs
-        List<NseInstrument> niftyFutures = all.stream()
-                .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
-                .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
-                .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
-                .filter(inst -> !inst.isWeekly())
-                .filter(inst -> inst.getLot_size() == 75)
-                .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
-                .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
-                .toList();
+    log.info("✅ Found {} NIFTY FUT contracts with lot size 75", niftyFutures.size());
+    niftyFutures.forEach(i ->
+            log.debug("📄 {} | expiry={} | key={}"
+                    , i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
 
-        log.info("✅ Found {} NIFTY FUT contracts with lot size 75", niftyFutures.size());
-        niftyFutures.forEach(i ->
-                log.debug("📄 {} | expiry={} | key={}"
-                        , i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
+    );
 
-        );
-
-        // Step 2: Save to separate collection
-        if (!niftyFutures.isEmpty()) {
-            mongoTemplate.dropCollection("nifty_futures");
-            mongoTemplate.insert(niftyFutures, "nifty_futures");
-            mongoTemplate.indexOps("nifty_futures")
-                    .ensureIndex(new org.springframework.data.mongodb.core.index.Index().on("expiry", Sort.Direction.ASC));
-            log.info("💾 Saved to MongoDB collection: nifty_futures (indexed on expiry)");
-        } else {
-            log.warn("⚠️ No matching NIFTY FUT records found.");
-        }
-
-    } catch (IOException e) {
-        log.error("❌ Failed to parse or save NIFTY FUT records", e);
+    // Step 2: Save to separate collection
+    if (!niftyFutures.isEmpty()) {
+        mongoTemplate.dropCollection("nifty_futures");
+        mongoTemplate.insert(niftyFutures, "nifty_futures");
+        mongoTemplate.indexOps("nifty_futures")
+                .ensureIndex(new org.springframework.data.mongodb.core.index.Index().on("expiry", Sort.Direction.ASC));
+        log.info("💾 Saved to MongoDB collection: nifty_futures (indexed on expiry)");
+    } else {
+        log.warn("⚠️ No matching NIFTY FUT records found.");
     }
 }
 
