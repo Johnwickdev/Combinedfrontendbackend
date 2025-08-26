@@ -1,10 +1,10 @@
 package com.trader.backend.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.trader.backend.service.CandleService;
 import com.trader.backend.service.CandleService.CandleResponse;
 import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
+import com.trader.backend.events.LtpEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -61,14 +61,20 @@ public class MdController {
     public Flux<ServerSentEvent<String>> stream(@RequestParam(value = "instrumentKey", required = false) List<String> keys,
                                                 ServerHttpResponse response) {
         response.getHeaders().set(HttpHeaders.CACHE_CONTROL, "no-cache");
-        Flux<JsonNode> flux = liveFeedService.stream();
+        Flux<LtpEvent> flux = liveFeedService.ltpEvents();
         if (keys != null && !keys.isEmpty()) {
             Set<String> set = new HashSet<>(keys);
-            flux = flux.filter(j -> set.contains(j.path("instrumentKey").asText()));
+            flux = flux.filter(ev -> set.contains(ev.instrumentKey()));
         }
         Flux<ServerSentEvent<String>> ticks = flux
-                .onBackpressureDrop()
-                .map(j -> ServerSentEvent.builder(j.toString()).event("tick").build());
+                .map(ev -> {
+                    String json = "{" +
+                            "\"instrumentKey\":\"" + ev.instrumentKey() + "\"," +
+                            "\"ts\":\"" + ev.timestamp().toString() + "\"," +
+                            "\"ltp\":" + ev.ltp() +
+                            "}";
+                    return ServerSentEvent.builder(json).event("tick").build();
+                });
 
         Flux<ServerSentEvent<String>> heartbeat = Flux.interval(Duration.ofSeconds(15))
                 .map(i -> ServerSentEvent.<String>builder().comment("hb").build());
