@@ -9,25 +9,27 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 
+import java.util.Arrays;
 import java.util.List;
 @ComponentScan
 @Configuration
 @EnableWebMvc
 public class CorsConfig {
 
-    @Value("${cors.allowedOrigins:https://frontendfortheautobot.vercel.app}")
+    @Value("${cors.allowedOrigins:https://frontendfortheautobot.vercel.app,http://localhost:4200}")
     private String allowedOrigins;
 
     @Bean
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(false);
-        config.setAllowedOrigins(List.of(allowedOrigins));
-        config.setAllowedHeaders(List.of("Content-Type", "Authorization"));
-        config.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        config.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
+        config.setAllowedHeaders(List.of("Content-Type"));
+        config.setAllowedMethods(List.of("GET"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        List<String> paths = List.of("/auth/status", "/md/candles", "/md/stream", "/md/selection");
+        paths.forEach(p -> source.registerCorsConfiguration(p, config));
 
         return new CorsFilter(source);
     }
