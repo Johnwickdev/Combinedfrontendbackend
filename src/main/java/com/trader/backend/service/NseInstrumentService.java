@@ -72,6 +72,36 @@ public class NseInstrumentService {
     private final ObjectMapper mapper;
     private final MongoTemplate mongoTemplate;
 
+    // Cache for NSE.json contents
+    private List<NseInstrument> nseCache = Collections.emptyList();
+    private long nseCacheLoadedAt = 0L;
+    private static final long CACHE_TTL_MS = 24 * 60 * 60 * 1000L; // 24h
+
+    /** Ensure NSE.json is loaded into memory. */
+    public synchronized void ensureNseJsonLoaded(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && !nseCache.isEmpty() && (now - nseCacheLoadedAt) < CACHE_TTL_MS) {
+            return;
+        }
+        try {
+            File jsonFile = new File("src/main/resources/data/NSE.json");
+            nseCache = Arrays.asList(mapper.readValue(jsonFile, NseInstrument[].class));
+            nseCacheLoadedAt = now;
+            log.debug("NSE.json parsed ({} records)", nseCache.size());
+        } catch (IOException e) {
+            log.error("Failed to load NSE.json", e);
+        }
+    }
+
+    public void ensureNseJsonLoaded() {
+        ensureNseJsonLoaded(false);
+    }
+
+    public List<NseInstrument> getCachedNse() {
+        ensureNseJsonLoaded(false);
+        return nseCache;
+    }
+
     public void saveFilteredInstrumentsToMongo() {
         try {
             log.info("📂 Reading NSE.json for filtering...");
@@ -316,18 +346,72 @@ public List<String> getInstrumentKeysForLiveSubscription() {
     }
     return keys;
 }
+
+public record SelectionData(long expiry, List<String> keys, int ceCount, int peCount) {}
+
+public SelectionData currentSelectionData() {
+    long now = System.currentTimeMillis();
+
+    List<Long> expiries = mongoTemplate.findDistinct(
+            new Query(Criteria.where("expiry").gte(now)),
+            "expiry",
+            "filtered_nifty_premiums",
+            Long.class
+    );
+    if (expiries.isEmpty()) {
+        return new SelectionData(0L, List.of(), 0, 0);
+    }
+    long targetExpiry = expiries.stream().sorted().findFirst().get();
+    var targetDayIST = Instant.ofEpochMilli(targetExpiry).atZone(IST).toLocalDate();
+    long dayStart = istStartOfDayMs(targetDayIST);
+    long dayEnd = istEndOfDayMs(targetDayIST);
+
+    Query q = new Query(new Criteria().andOperator(
+            Criteria.where("expiry").gte(dayStart).lt(dayEnd)
+    ));
+    List<NseInstrument> docs =
+            mongoTemplate.find(q, NseInstrument.class, "filtered_nifty_premiums");
+
+    List<String> keys = new ArrayList<>(
+            docs.stream()
+                    .map(NseInstrument::getInstrument_key)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList()
+    );
+
+    int ce = (int) docs.stream().filter(i -> "CE".equalsIgnoreCase(i.getInstrumentType())).count();
+    int pe = (int) docs.stream().filter(i -> "PE".equalsIgnoreCase(i.getInstrumentType())).count();
+
+    nearestNiftyFutureKey().ifPresent(futKey -> {
+        if (!keys.contains(futKey)) keys.add(futKey);
+    });
+
+    return new SelectionData(targetExpiry, keys, ce, pe);
+}
+
+public String selectionSignature(SelectionData sel) {
+    List<String> sorted = new ArrayList<>(sel.keys());
+    Collections.sort(sorted);
+    String date = Instant.ofEpochMilli(sel.expiry()).atZone(IST).toLocalDate().toString();
+    return date + ":" + sorted.hashCode();
+}
+
+public String formatExpiry(long expiry) {
+    return Instant.ofEpochMilli(expiry).atZone(IST).toLocalDate().toString();
+}
 public void saveNiftyFuturesToMongo() {
     log.info("📂 Extracting NIFTY FUTURE records from NSE.json...");
 
     try {
-        File jsonFile = new File("src/main/resources/data/NSE.json");
-        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
-for (NseInstrument i : all){
-    if(i.getName() !=null) i.setName(i.getName().trim());
-    if (i.getSegment() !=null) i.setSegment(i.getSegment().trim());
-    if (i.getInstrumentType() !=null) i.setInstrumentType(i.getInstrumentType().trim());
-    if (i.getUnderlying_key() !=null) i.setUnderlying_key(i.getUnderlying_key().trim());
-}
+        ensureNseJsonLoaded(false);
+        List<NseInstrument> all = new ArrayList<>(nseCache);
+        for (NseInstrument i : all) {
+            if (i.getName() != null) i.setName(i.getName().trim());
+            if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
+            if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
+            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+        }
         // Step 1: Filter valid NIFTY FUTs
         List<NseInstrument> niftyFutures = all.stream()
                 .filter(inst -> "FUT".equalsIgnoreCase(inst.getInstrumentType()))
@@ -339,11 +423,10 @@ for (NseInstrument i : all){
                 .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
                 .toList();
 
-        log.info("First record: name={}, type={}, segment={}, underlaying_key={}",all.get(0).getName(),all.get(0).getInstrumentType(),all.get(0).getSegment(),all.get(0).getUnderlying_key());
-
         log.info("✅ Found {} NIFTY FUT contracts with lot size 75", niftyFutures.size());
         niftyFutures.forEach(i ->
-                log.info("📄 {} | expiry={} | key={}", i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
+                log.debug("📄 {} | expiry={} | key={}"
+                        , i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
 
         );
 
@@ -616,8 +699,8 @@ private long istEndOfDayMs(LocalDate d) {
 public void refreshNiftyOptionsByNearestExpiryFromJson() {
     log.info("🔁 Refreshing nse_instruments by nearest future expiry from NSE.json (NIFTY CE/PE)...");
     try {
-        File jsonFile = new File("src/main/resources/data/NSE.json");
-        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
+        ensureNseJsonLoaded(false);
+        List<NseInstrument> all = new ArrayList<>(nseCache);
         all.forEach(this::normalizeInstrument);
 
         long now = System.currentTimeMillis();
@@ -672,7 +755,7 @@ public void purgeExpiredOptionDocs() {
 
 private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
-private boolean isExpiryCompleted(long expiryMs) {
+public boolean isExpiryCompleted(long expiryMs) {
     LocalDate expiryDay = Instant.ofEpochMilli(expiryMs).atZone(IST).toLocalDate();
     long cutoffMs = expiryDay.atTime(EXPIRY_CUTOFF).atZone(IST).toInstant().toEpochMilli();
     return System.currentTimeMillis() >= cutoffMs;
