@@ -20,6 +20,9 @@ import java.util.Base64;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -52,6 +55,8 @@ public class UpstoxAuthService {
     private final AtomicReference<String> accessToken = new AtomicReference<>();
     private final AtomicReference<String> refreshToken = new AtomicReference<>();
     private final AtomicReference<Long> expiresAt = new AtomicReference<>(0L); // epoch seconds
+
+    private final Path tokenFile = Paths.get("token.json");
 
     private final Sinks.Many<AuthEvent> authEvents = Sinks.many().replay().latest();
 
@@ -117,8 +122,8 @@ public class UpstoxAuthService {
                         exp = extractExpiry(at);
                     }
                     expiresAt.set(exp);
-
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
+                    saveTokenBundle(at, refreshToken.get(), exp);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     log.info("✅ access_token saved (expires {})", exp > 0 ? Instant.ofEpochSecond(exp) : "unknown");
                     liveFeed.initLiveWebSocket();
@@ -186,6 +191,7 @@ public class UpstoxAuthService {
                     long exp = System.currentTimeMillis() / 1000 + ttl;
                     expiresAt.set(exp);
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
+                    saveTokenBundle(at, refreshToken.get(), exp);
                     log.info("🔄 Refreshed access_token ({} sec left)", ttl);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     return true;
@@ -227,15 +233,36 @@ public class UpstoxAuthService {
      * Simple status endpoint helper.
      */
     public Mono<Map<String, Object>> status() {
+        TokenBundle bundle = loadTokenBundle();
         long now = System.currentTimeMillis() / 1000;
-        long exp = expiresAt.get();
-        boolean connected = accessToken.get() != null && now < exp;
+        long exp = bundle != null ? bundle.expiresAt : 0;
+        boolean connected = bundle != null && bundle.accessToken != null && now < exp;
 
         Map<String, Object> m = new HashMap<>();
         m.put("connected", connected);
-        m.put("expiresAt", (connected && exp > 0) ? Instant.ofEpochSecond(exp).toString() : null);
-        m.put("remainingSeconds", connected ? exp - now : 0);
+        m.put("expiresAt", connected ? Instant.ofEpochSecond(exp).toString() : null);
+        m.put("remainingSeconds", connected ? (int) (exp - now) : 0);
         return Mono.just(m);
+    }
+
+    private void saveTokenBundle(String at, String rt, long exp) {
+        try {
+            TokenBundle b = new TokenBundle(at, rt, exp);
+            mapper.writeValue(tokenFile.toFile(), b);
+        } catch (IOException e) {
+            log.warn("Failed to persist token bundle", e);
+        }
+    }
+
+    private TokenBundle loadTokenBundle() {
+        try {
+            if (Files.exists(tokenFile)) {
+                return mapper.readValue(tokenFile.toFile(), TokenBundle.class);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to read token bundle", e);
+        }
+        return null;
     }
 
     /** Convenience method used by controllers to fetch market quotes. */
