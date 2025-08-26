@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.trader.backend.service.CandleService;
 import com.trader.backend.service.CandleService.CandleResponse;
 import com.trader.backend.service.LiveFeedService;
+import com.trader.backend.service.NseInstrumentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -21,6 +22,7 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @RestController
@@ -29,6 +31,7 @@ import java.util.Set;
 public class MdController {
     private final CandleService candleService;
     private final LiveFeedService liveFeedService;
+    private final NseInstrumentService nseInstrumentService;
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -42,6 +45,16 @@ public class MdController {
         }
         int lb = Math.min(Math.max(lookback,1), 720);
         return candleService.fetchCandles(instrumentKeys, tf, lb);
+    }
+
+    @GetMapping("/selection")
+    public Map<String, Object> selection() {
+        var sel = nseInstrumentService.currentSelectionData();
+        String main = nseInstrumentService.nearestNiftyFutureKey().orElse("");
+        List<String> opts = sel.keys().stream()
+                .filter(k -> !k.equals(main))
+                .toList();
+        return Map.of("mainInstrument", main, "options", opts);
     }
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
