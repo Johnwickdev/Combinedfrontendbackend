@@ -28,7 +28,12 @@ public class CorsConfig {
         config.setAllowedMethods(List.of("GET"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        List<String> paths = List.of("/auth/url", "/auth/status");
+        List<String> paths = List.of(
+                "/auth/url",
+                "/auth/status",
+                "/md/selection",
+                "/md/stream"
+        );
         paths.forEach(p -> source.registerCorsConfiguration(p, config));
 
         return new CorsFilter(source);
