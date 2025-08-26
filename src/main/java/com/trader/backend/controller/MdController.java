@@ -5,7 +5,9 @@ import com.trader.backend.service.CandleService.CandleResponse;
 import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
 import com.trader.backend.events.LtpEvent;
+import com.trader.backend.service.MarketHours;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -21,14 +23,18 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/md")
 @RequiredArgsConstructor
+@Slf4j
 public class MdController {
     private final CandleService candleService;
     private final LiveFeedService liveFeedService;
@@ -58,28 +64,68 @@ public class MdController {
         return ResponseEntity.ok(Map.of("mainInstrument", main, "options", opts));
     }
 
+    @GetMapping("/last-ltp")
+    public Map<String, Object> lastLtp(@RequestParam("instrumentKey") String instrumentKey) {
+        return liveFeedService.lastQuote(instrumentKey)
+                .map(q -> Map.of(
+                        "instrumentKey", instrumentKey,
+                        "ltp", q.ltp(),
+                        "ts", q.ts().toString()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no quote"));
+    }
+
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<Map<String, Object>>> stream(@RequestParam(value = "instrumentKey", required = false) List<String> keys,
                                                              ServerHttpResponse response) {
         response.getHeaders().set(HttpHeaders.CACHE_CONTROL, "no-cache");
-        Flux<LtpEvent> flux = liveFeedService.ltpEvents();
-        if (keys != null && !keys.isEmpty()) {
-            Set<String> set = new HashSet<>(keys);
-            flux = flux.filter(ev -> set.contains(ev.instrumentKey()));
+        try {
+            boolean open = MarketHours.isOpen(Instant.now());
+            Flux<ServerSentEvent<Map<String, Object>>> heartbeat = Flux.interval(Duration.ofSeconds(15))
+                    .map(i -> ServerSentEvent.<Map<String, Object>>builder().comment("hb").build());
+            if (open) {
+                Flux<LtpEvent> flux = liveFeedService.ltpEvents();
+                if (keys != null && !keys.isEmpty()) {
+                    Set<String> set = new HashSet<>(keys);
+                    flux = flux.filter(ev -> set.contains(ev.instrumentKey()));
+                }
+                Flux<ServerSentEvent<Map<String, Object>>> ticks = flux
+                        .map(ev -> {
+                            Map<String, Object> data = Map.of(
+                                    "instrumentKey", ev.instrumentKey(),
+                                    "ts", ev.timestamp().toString(),
+                                    "ltp", ev.ltp()
+                            );
+                            return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
+                        });
+                return Flux.merge(ticks, heartbeat);
+            } else {
+                ServerSentEvent<Map<String, Object>> status = ServerSentEvent.<Map<String, Object>>builder(
+                        Map.of("marketClosed", true, "message", "Market closed — showing last price"))
+                        .event("status").build();
+                List<String> targetKeys;
+                if (keys != null && !keys.isEmpty()) {
+                    targetKeys = keys;
+                } else {
+                    targetKeys = new ArrayList<>(liveFeedService.cachedKeys());
+                }
+                Flux<ServerSentEvent<Map<String, Object>>> tick = Flux.fromIterable(targetKeys)
+                        .map(k -> Map.entry(k, liveFeedService.lastQuote(k)))
+                        .filter(e -> e.getValue().isPresent())
+                        .map(e -> {
+                            LiveFeedService.LatestQuote q = e.getValue().get();
+                            Map<String, Object> data = Map.of(
+                                    "instrumentKey", e.getKey(),
+                                    "ts", q.ts().toString(),
+                                    "ltp", q.ltp());
+                            return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
+                        });
+                return Flux.merge(Flux.concat(Flux.just(status), tick), heartbeat);
+            }
+        } catch (Exception e) {
+            log.error("SSE stream init failed", e);
+            return Flux.just(ServerSentEvent.<Map<String, Object>>builder(
+                    Map.of("error", "stream-initialization-failed"))
+                    .event("error").build());
         }
-        Flux<ServerSentEvent<Map<String, Object>>> ticks = flux
-                .map(ev -> {
-                    Map<String, Object> data = Map.of(
-                            "instrumentKey", ev.instrumentKey(),
-                            "ts", ev.timestamp().toString(),
-                            "ltp", ev.ltp()
-                    );
-                    return ServerSentEvent.<Map<String, Object>>builder(data).event("tick").build();
-                });
-
-        Flux<ServerSentEvent<Map<String, Object>>> heartbeat = Flux.interval(Duration.ofSeconds(15))
-                .map(i -> ServerSentEvent.<Map<String, Object>>builder().comment("hb").build());
-
-        return Flux.merge(ticks, heartbeat);
     }
 }

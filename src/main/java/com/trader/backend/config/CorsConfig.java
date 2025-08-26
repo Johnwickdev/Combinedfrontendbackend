@@ -29,10 +29,11 @@ public class CorsConfig {
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         List<String> paths = List.of(
-                "/auth/url",
-                "/auth/status",
+                "/auth/**",
                 "/md/selection",
-                "/md/stream"
+                "/md/candles",
+                "/md/stream",
+                "/md/last-ltp"
         );
         paths.forEach(p -> source.registerCorsConfiguration(p, config));
 

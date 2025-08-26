@@ -126,7 +126,6 @@ public class UpstoxAuthService {
                     saveTokenBundle(at, refreshToken.get(), exp);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     log.info("✅ access_token saved (expires {})", exp > 0 ? Instant.ofEpochSecond(exp) : "unknown");
-                    liveFeed.initLiveWebSocket();
                 })
                 .then();
     }
