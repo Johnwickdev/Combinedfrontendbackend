@@ -25,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -269,7 +270,7 @@ public class UpstoxAuthService {
         String token = accessToken.get();
         if (token == null) {
             log.warn("Access-token not ready. Hit /auth/exchange first.");
-            return Mono.just(Map.of());
+            return Mono.just(new LinkedHashMap<>());
         }
 
         return webClient.get()
