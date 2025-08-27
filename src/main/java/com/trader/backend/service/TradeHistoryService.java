@@ -89,13 +89,15 @@ public class TradeHistoryService {
             for (int i = 0; i < ticks.size(); i++) {
                 LiveFeedService.OptTick t = ticks.get(i);
                 LiveFeedService.OptTick prev = (i + 1 < ticks.size()) ? ticks.get(i + 1) : null;
-                double changePct = (prev != null && prev.ltp() != 0)
-                        ? ((t.ltp() - prev.ltp()) / prev.ltp()) * 100.0 : 0.0;
-                changePct = Math.round(changePct * 100.0) / 100.0;
+                Double changePct = null;
+                if (prev != null && prev.ltp() != 0) {
+                    changePct = ((t.ltp() - prev.ltp()) / prev.ltp()) * 100.0;
+                    changePct = Math.round(changePct * 100.0) / 100.0;
+                }
                 OptionType type = symbol.endsWith("PE") ? OptionType.PE : OptionType.CE;
                 int strike = parseStrike(symbol);
                 String txId = t.instrumentKey() + "-" + t.ts().getEpochSecond();
-                int qty = t.qty() > 0 ? t.qty() : 1;
+                Integer qty = t.qty() > 0 ? t.qty() : null;
                 Integer oi = t.oi() > 0 ? t.oi() : null;
                 out.add(new TradeRow(t.ts(), t.instrumentKey(), type, strike, t.ltp(), changePct, qty, oi, txId));
             }
@@ -136,10 +138,13 @@ public class TradeHistoryService {
                 Double ltp = getDouble(rec, "ltp");
                 if (ltp == null) continue;
                 Double prevLtp = prev != null ? getDouble(prev, "ltp") : null;
-                double changePct = (prevLtp != null && prevLtp != 0.0) ? ((ltp - prevLtp) / prevLtp) * 100.0 : 0.0;
-                changePct = Math.round(changePct * 100.0) / 100.0;
-                int qty = getDouble(rec, "qty") != null && getDouble(rec, "qty").intValue() > 0
-                        ? getDouble(rec, "qty").intValue() : 1;
+                Double changePct = null;
+                if (prevLtp != null && prevLtp != 0.0) {
+                    changePct = ((ltp - prevLtp) / prevLtp) * 100.0;
+                    changePct = Math.round(changePct * 100.0) / 100.0;
+                }
+                Integer qty = getDouble(rec, "qty") != null && getDouble(rec, "qty").intValue() > 0
+                        ? getDouble(rec, "qty").intValue() : null;
                 Integer oi = getDouble(rec, "oi") != null && getDouble(rec, "oi").intValue() > 0
                         ? getDouble(rec, "oi").intValue() : null;
                 String instrumentKey = (String) rec.getValueByKey("instrumentKey");

@@ -8,8 +8,8 @@ public record TradeRow(
         OptionType optionType,
         int strike,
         double ltp,
-        double changePct,
-        int qty,
+        Double changePct,
+        Integer qty,
         Integer oi,
         String txId
 ) {}
