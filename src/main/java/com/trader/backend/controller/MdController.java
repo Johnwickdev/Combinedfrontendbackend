@@ -68,14 +68,14 @@ public class MdController {
     }
 
     @GetMapping("/last-ltp")
-    public Map<String, Object> lastLtp(@RequestParam("instrumentKey") String instrumentKey) {
+    public ResponseEntity<Map<String, Object>> lastLtp(@RequestParam("instrumentKey") String instrumentKey) {
         return liveFeedService.lastQuote(instrumentKey)
                 .map(q -> {
                     Map<String, Object> body = new LinkedHashMap<>();
                     body.put("instrumentKey", instrumentKey);
                     body.put("ltp", q.ltp());
                     body.put("ts", q.ts().toString());
-                    return body;
+                    return ResponseEntity.ok(body);
                 })
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no quote"));
     }
