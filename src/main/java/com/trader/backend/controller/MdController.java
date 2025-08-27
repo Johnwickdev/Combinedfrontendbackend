@@ -4,6 +4,7 @@ import com.trader.backend.service.CandleService;
 import com.trader.backend.service.CandleService.CandleResponse;
 import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
+import com.trader.backend.service.SelectionService;
 import com.trader.backend.events.LtpEvent;
 import com.trader.backend.service.MarketHours;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ public class MdController {
     private final CandleService candleService;
     private final LiveFeedService liveFeedService;
     private final NseInstrumentService nseInstrumentService;
+    private final SelectionService selectionService;
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -135,5 +137,24 @@ public class MdController {
             return Flux.just(ServerSentEvent.<Map<String, Object>>builder(err)
                     .event("error").build());
         }
+    }
+
+    @GetMapping("/ltp")
+    public ResponseEntity<Map<String, Object>> getNiftyFutLtp() {
+        String instKey = selectionService.getMainFutureKey();
+        Double ltp = liveFeedService.getLatestLtp(instKey);
+        if (ltp == null) {
+            ltp = candleService.readLatestLtpFromInflux(instKey);
+        }
+        if (ltp == null) {
+            Map<String, Object> err = new LinkedHashMap<>();
+            err.put("error", "ltp-unavailable");
+            return ResponseEntity.status(503).body(err);
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("instrumentKey", instKey);
+        body.put("ltp", ltp);
+        body.put("timestamp", java.time.Instant.now().toString());
+        return ResponseEntity.ok(body);
     }
 }

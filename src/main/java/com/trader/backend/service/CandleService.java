@@ -51,6 +51,29 @@ public class CandleService {
                 .collectList();
     }
 
+    public Double readLatestLtpFromInflux(String instrumentKey) {
+        Optional<NseInstrument> opt = repo.findById(instrumentKey);
+        if (opt.isEmpty()) {
+            return null;
+        }
+        String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
+                "nifty_fut_ticks" : "nifty_option_ticks";
+        String flux = String.format("from(bucket: \"%s\") |> range(start: -1d) |> " +
+                        "filter(fn: (r) => r._measurement == \"%s\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
+                influxBucket, measurement, instrumentKey);
+        QueryApi queryApi = influxDBClient.getQueryApi();
+        List<FluxTable> tables = queryApi.query(flux, influxOrg);
+        for (FluxTable table : tables) {
+            for (FluxRecord rec : table.getRecords()) {
+                Object val = rec.getValueByKey("_value");
+                if (val instanceof Number num) {
+                    return num.doubleValue();
+                }
+            }
+        }
+        return null;
+    }
+
     private CandleResponse queryForInstrument(QueryApi queryApi, String key, String tf, String start) {
         Optional<NseInstrument> opt = repo.findById(key);
         if (opt.isEmpty()) {

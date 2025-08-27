@@ -16,7 +16,7 @@ import java.util.List;
 @EnableWebMvc
 public class CorsConfig {
 
-    @Value("${cors.allowedOrigins:https://frontendfortheautobot.vercel.app}")
+    @Value("${cors.allowedOrigins:https://frontendfortheautobot.vercel.app,http://localhost:4200}")
     private String allowedOrigins;
 
     @Bean
@@ -33,7 +33,8 @@ public class CorsConfig {
                 "/md/selection",
                 "/md/candles",
                 "/md/stream",
-                "/md/last-ltp"
+                "/md/last-ltp",
+                "/md/ltp"
         );
         paths.forEach(p -> source.registerCorsConfiguration(p, config));
 
