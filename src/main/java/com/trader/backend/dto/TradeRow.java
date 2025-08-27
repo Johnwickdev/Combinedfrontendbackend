@@ -10,6 +10,6 @@ public record TradeRow(
         double ltp,
         double changePct,
         int qty,
-        int oi,
+        Integer oi,
         String txId
 ) {}

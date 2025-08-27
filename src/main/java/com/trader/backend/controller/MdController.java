@@ -190,12 +190,10 @@ public class MdController {
         if (!Set.of("CE", "PE", "BOTH").contains(s)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "side");
         }
-        Optional<TradeHistoryService.Result> resOpt = tradeHistoryService.fetch(lim, s);
-        if (resOpt.isEmpty()) {
-            return ResponseEntity.noContent().build();
-        }
-        TradeHistoryService.Result res = resOpt.get();
-        log.info("GET /md/sector-trades?limit={}&side={} — src={} — rows={}", lim, s, res.source(), res.rows().size());
-        return ResponseEntity.ok(res.rows());
+        Optional<TradeHistoryService.Result> resOpt = tradeHistoryService.fetchRecentOptionTrades(lim, s);
+        List<TradeRow> rows = resOpt.map(TradeHistoryService.Result::rows).orElse(List.of());
+        String src = resOpt.map(TradeHistoryService.Result::source).orElse("none");
+        log.info("GET /md/sector-trades side={} limit={} src={} count={}", s, lim, src, rows.size());
+        return ResponseEntity.ok(rows);
     }
 }
