@@ -24,6 +24,8 @@ import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,6 +46,7 @@ public class MdController {
     private final NseInstrumentService nseInstrumentService;
     private final SelectionService selectionService;
     private final InfluxTickService influxTickService;
+    private final AtomicBoolean fallbackLogged = new AtomicBoolean(false);
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -144,12 +147,12 @@ public class MdController {
 
     @GetMapping("/ltp")
     public ResponseEntity<Map<String, Object>> ltp(@RequestParam("instrumentKey") String instrumentKey) {
-        log.info("GET /md/ltp?instrumentKey={}", instrumentKey);
         Instant now = Instant.now();
-        if (liveFeedService.isMarketOpen()) {
+        if (liveFeedService.hasRecentFutWrites()) {
             Optional<Tick> live = liveFeedService.getLatestTick(instrumentKey)
                     .filter(t -> Duration.between(t.ts(), now).toMillis() <= 5000);
             if (live.isPresent()) {
+                fallbackLogged.set(false);
                 Tick t = live.get();
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put("instrumentKey", instrumentKey);
@@ -159,13 +162,14 @@ public class MdController {
                 return ResponseEntity.ok(body);
             }
         }
-        Optional<Tick> hist = influxTickService.latestTick(instrumentKey);
+
+        if (fallbackLogged.compareAndSet(false, true)) {
+            log.info("LTP falling back to InfluxDB");
+        }
+        Optional<Double> hist = influxTickService.latestNiftyFutLtp();
         if (hist.isPresent()) {
-            Tick t = hist.get();
             Map<String, Object> body = new LinkedHashMap<>();
-            body.put("instrumentKey", instrumentKey);
-            body.put("ltp", t.ltp());
-            body.put("ts", t.ts().toString());
+            body.put("ltp", hist.get());
             body.put("source", "influx");
             return ResponseEntity.ok(body);
         }

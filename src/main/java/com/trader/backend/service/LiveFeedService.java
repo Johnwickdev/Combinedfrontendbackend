@@ -96,6 +96,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         return MarketHours.isOpen(Instant.now());
     }
 
+    public boolean hasRecentFutWrites() {
+        return futWrites.get() > 0;
+    }
+
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
 
