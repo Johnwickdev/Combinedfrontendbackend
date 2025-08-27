@@ -7,6 +7,8 @@ import com.influxdb.query.FluxTable;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import com.trader.backend.entity.NseInstrument;
+import com.trader.backend.repository.NseInstrumentRepository;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,6 +21,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class InfluxTickService {
     private final InfluxDBClient influxDBClient;
+    private final NseInstrumentRepository repo;
 
     @Value("${influx.org:}")
     private String influxOrg;
@@ -27,12 +30,18 @@ public class InfluxTickService {
     private String influxBucket;
 
     /**
-     * Fetches the latest NIFTY future tick for the given instrument key.
+     * Fetches the latest tick for the given instrument key.
      */
-    public Optional<Tick> latestFutTick(String instrumentKey) {
+    public Optional<Tick> latestTick(String instrumentKey) {
+        Optional<NseInstrument> opt = repo.findById(instrumentKey);
+        if (opt.isEmpty()) {
+            return Optional.empty();
+        }
+        String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
+                "nifty_fut_ticks" : "nifty_option_ticks";
         String flux = String.format("from(bucket: \"%s\") |> range(start: -30d) |> " +
-                        "filter(fn: (r) => r._measurement == \"nifty_fut_ticks\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
-                influxBucket, instrumentKey);
+                        "filter(fn: (r) => r._measurement == \"%s\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
+                influxBucket, measurement, instrumentKey);
         QueryApi queryApi = influxDBClient.getQueryApi();
         List<FluxTable> tables = queryApi.query(flux, influxOrg);
         for (FluxTable table : tables) {
@@ -45,5 +54,12 @@ public class InfluxTickService {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Backwards compat: futures only.
+     */
+    public Optional<Tick> latestFutTick(String instrumentKey) {
+        return latestTick(instrumentKey);
     }
 }

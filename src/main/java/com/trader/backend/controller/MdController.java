@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/md")
@@ -142,40 +143,32 @@ public class MdController {
     }
 
     @GetMapping("/ltp")
-    public ResponseEntity<Map<String, Object>> getNiftyFutLtp() {
-        String instKey = selectionService.getCurrentNiftyFutureKey();
-        boolean marketOpen = liveFeedService.isMarketOpen();
-
-        Tick tick = null;
-        String source = "influx";
-
-        if (marketOpen) {
-            tick = liveFeedService.getLatestTick(instKey).orElse(null);
-            if (tick != null) {
-                source = "live";
+    public ResponseEntity<Map<String, Object>> ltp(@RequestParam("instrumentKey") String instrumentKey) {
+        log.info("GET /md/ltp?instrumentKey={}", instrumentKey);
+        Instant now = Instant.now();
+        if (liveFeedService.isMarketOpen()) {
+            Optional<Tick> live = liveFeedService.getLatestTick(instrumentKey)
+                    .filter(t -> Duration.between(t.ts(), now).toMillis() <= 5000);
+            if (live.isPresent()) {
+                Tick t = live.get();
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("instrumentKey", instrumentKey);
+                body.put("ltp", t.ltp());
+                body.put("ts", t.ts().toString());
+                body.put("source", "live");
+                return ResponseEntity.ok(body);
             }
         }
-
-        if (tick == null) {
-            tick = influxTickService.latestFutTick(instKey).orElse(null);
+        Optional<Tick> hist = influxTickService.latestTick(instrumentKey);
+        if (hist.isPresent()) {
+            Tick t = hist.get();
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("instrumentKey", instrumentKey);
+            body.put("ltp", t.ltp());
+            body.put("ts", t.ts().toString());
+            body.put("source", "influx");
+            return ResponseEntity.ok(body);
         }
-
-        if (tick == null) {
-            Map<String, Object> err = new LinkedHashMap<>();
-            err.put("error", "ltp-unavailable");
-            return ResponseEntity.status(503).body(err);
-        }
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("instrumentKey", instKey);
-        body.put("ltp", tick.ltp());
-        body.put("timestamp", tick.ts().toString());
-        body.put("marketOpen", marketOpen);
-        body.put("source", source);
-
-        long ageMs = Duration.between(tick.ts(), Instant.now()).toMillis();
-        log.debug("/md/ltp source={} age={}ms", source, ageMs);
-
-        return ResponseEntity.ok(body);
+        return ResponseEntity.noContent().build();
     }
 }

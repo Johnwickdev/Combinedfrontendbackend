@@ -45,6 +45,8 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
+import org.bson.Document;
+import com.mongodb.client.model.ReplaceOptions;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -606,8 +608,11 @@ public Optional<String> nearestNiftyFutureKey() {
         return Optional.empty();
     }
 
-    // persist chosen contract using upsert
-    mongoTemplate.save(current, "current_nifty_future");
+    // persist chosen contract using upsert to avoid duplicate key errors
+    Document doc = new Document();
+    mongoTemplate.getConverter().write(current, doc);
+    mongoTemplate.getCollection("current_nifty_future")
+            .replaceOne(new Document("_id", doc.get("_id")), doc, new ReplaceOptions().upsert(true));
 
     String chosenMonth = extractMonth(current.getTrading_symbol());
     List<String> reasons = new ArrayList<>();
