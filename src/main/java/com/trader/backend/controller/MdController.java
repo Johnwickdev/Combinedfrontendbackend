@@ -179,8 +179,8 @@ public class MdController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/trade-history")
-    public ResponseEntity<List<TradeRow>> tradeHistory(@RequestParam Optional<Integer> limit,
+    @GetMapping("/sector-trades")
+    public ResponseEntity<List<TradeRow>> sectorTrades(@RequestParam Optional<Integer> limit,
                                                        @RequestParam Optional<String> side) {
         int lim = limit.orElse(50);
         if (lim < 1 || lim > 200) {
@@ -195,7 +195,7 @@ public class MdController {
             return ResponseEntity.noContent().build();
         }
         TradeHistoryService.Result res = resOpt.get();
-        log.info("GET /md/trade-history?limit={}&side={} — src={} — rows={}", lim, s, res.source(), res.rows().size());
+        log.info("GET /md/sector-trades?limit={}&side={} — src={} — rows={}", lim, s, res.source(), res.rows().size());
         return ResponseEntity.ok(res.rows());
     }
 }
