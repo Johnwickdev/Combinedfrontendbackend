@@ -62,4 +62,23 @@ public class InfluxTickService {
     public Optional<Tick> latestFutTick(String instrumentKey) {
         return latestTick(instrumentKey);
     }
+
+    /**
+     * Fetches latest stored NIFTY future LTP from the standalone measurement.
+     */
+    public Optional<Double> latestNiftyFutLtp() {
+        String flux = "from(bucket: \"Ticks\") |> range(start: -30d) |> " +
+                "filter(fn: (r) => r._measurement == \"nifty_fut_ltp\" and r.symbol == \"NIFTY\" and r._field == \"ltp\") |> last()";
+        QueryApi queryApi = influxDBClient.getQueryApi();
+        List<FluxTable> tables = queryApi.query(flux, influxOrg);
+        for (FluxTable table : tables) {
+            for (FluxRecord rec : table.getRecords()) {
+                Object val = rec.getValueByKey("_value");
+                if (val instanceof Number num) {
+                    return Optional.of(num.doubleValue());
+                }
+            }
+        }
+        return Optional.empty();
+    }
 }
