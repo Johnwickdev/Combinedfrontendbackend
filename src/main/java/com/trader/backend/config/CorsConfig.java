@@ -34,7 +34,8 @@ public class CorsConfig {
                 "/md/candles",
                 "/md/stream",
                 "/md/last-ltp",
-                "/md/ltp"
+                "/md/ltp",
+                "/md/trade-history"
         );
         paths.forEach(p -> source.registerCorsConfiguration(p, config));
 
