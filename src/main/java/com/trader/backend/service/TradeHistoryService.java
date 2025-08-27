@@ -36,7 +36,7 @@ public class TradeHistoryService {
 
     public record Result(List<TradeRow> rows, String source) {}
 
-    public Optional<Result> fetch(int limit, String side) {
+    public Optional<Result> fetchRecentOptionTrades(int limit, String side) {
         NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
         List<String> keys = sel.keys();
         if (keys == null || keys.isEmpty()) {
@@ -91,10 +91,13 @@ public class TradeHistoryService {
                 LiveFeedService.OptTick prev = (i + 1 < ticks.size()) ? ticks.get(i + 1) : null;
                 double changePct = (prev != null && prev.ltp() != 0)
                         ? ((t.ltp() - prev.ltp()) / prev.ltp()) * 100.0 : 0.0;
+                changePct = Math.round(changePct * 100.0) / 100.0;
                 OptionType type = symbol.endsWith("PE") ? OptionType.PE : OptionType.CE;
                 int strike = parseStrike(symbol);
                 String txId = t.instrumentKey() + "-" + t.ts().getEpochSecond();
-                out.add(new TradeRow(t.ts(), t.instrumentKey(), type, strike, t.ltp(), changePct, t.qty(), t.oi(), txId));
+                int qty = t.qty() > 0 ? t.qty() : 1;
+                Integer oi = t.oi() > 0 ? t.oi() : null;
+                out.add(new TradeRow(t.ts(), t.instrumentKey(), type, strike, t.ltp(), changePct, qty, oi, txId));
             }
         }
         out.sort(Comparator.comparing(TradeRow::ts).reversed());
@@ -134,8 +137,11 @@ public class TradeHistoryService {
                 if (ltp == null) continue;
                 Double prevLtp = prev != null ? getDouble(prev, "ltp") : null;
                 double changePct = (prevLtp != null && prevLtp != 0.0) ? ((ltp - prevLtp) / prevLtp) * 100.0 : 0.0;
-                int qty = getDouble(rec, "qty") != null ? getDouble(rec, "qty").intValue() : 0;
-                int oi = getDouble(rec, "oi") != null ? getDouble(rec, "oi").intValue() : 0;
+                changePct = Math.round(changePct * 100.0) / 100.0;
+                int qty = getDouble(rec, "qty") != null && getDouble(rec, "qty").intValue() > 0
+                        ? getDouble(rec, "qty").intValue() : 1;
+                Integer oi = getDouble(rec, "oi") != null && getDouble(rec, "oi").intValue() > 0
+                        ? getDouble(rec, "oi").intValue() : null;
                 String instrumentKey = (String) rec.getValueByKey("instrumentKey");
                 Instant ts = (Instant) rec.getValueByKey("_time");
                 String symbol = entry.getKey();
