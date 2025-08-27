@@ -29,7 +29,6 @@ import reactor.util.retry.Retry;
 import javax.annotation.PostConstruct;
 import java.net.URI;
 import java.time.Duration;
-import java.time.ZoneId;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
@@ -78,21 +77,23 @@ private final AtomicReference<String> lastSelectionSignature = new AtomicReferen
 private final AtomicBoolean selectionComputed = new AtomicBoolean(false);
 private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet();
 
-    private final ConcurrentHashMap<String, LatestQuote> lastLtp = new ConcurrentHashMap<>();
-    private final AtomicReference<String> initializedForDate = new AtomicReference<>("");
+    private final ConcurrentHashMap<String, Tick> lastTick = new ConcurrentHashMap<>();
+    private final AtomicBoolean instrumentsInitialized = new AtomicBoolean(false);
 
-    public record LatestQuote(double ltp, Instant ts) {}
-
-    public Optional<LatestQuote> lastQuote(String key) {
-        return Optional.ofNullable(lastLtp.get(key));
+    public Optional<Tick> getLatestTick(String key) {
+        return Optional.ofNullable(lastTick.get(key));
     }
 
     public Double getLatestLtp(String key) {
-        return lastQuote(key).map(LatestQuote::ltp).orElse(null);
+        return getLatestTick(key).map(Tick::ltp).orElse(null);
     }
 
     public Set<String> cachedKeys() {
-        return lastLtp.keySet();
+        return lastTick.keySet();
+    }
+
+    public boolean isMarketOpen() {
+        return MarketHours.isOpen(Instant.now());
     }
 
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
@@ -184,13 +185,11 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         }
         log.info("OAuth success — starting market pipeline...");
         try {
-            String today = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString();
-            if (!today.equals(initializedForDate.get())) {
+            if (instrumentsInitialized.compareAndSet(false, true)) {
                 nseInstrumentService.ensureNseJsonLoaded();
                 nseInstrumentService.purgeExpiredOptionDocs();
                 nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
                 nseInstrumentService.saveNiftyFuturesToMongo();
-                initializedForDate.set(today);
             }
             streamNiftyFutAndTriggerCEPE();
         } catch (Exception e) {
@@ -506,7 +505,7 @@ public void streamFilteredNiftyOptions() {
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     maybeLogLtp(instrumentKey, ltp, ts);
                     writeTickToInflux(instrumentKey, feed, ts);
-                    lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
+                    lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
 
                     var result = quantAnalysisService.analyze(instrumentKey, feed);
                     if (result.signal() != QuantAnalysisService.Signal.NONE) {
@@ -563,7 +562,7 @@ JsonNode ltpNode = tick.path("feeds")
                     maybeLogLtp(instrumentKey, ltp, ts);
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     writeTickToInflux(instrumentKey, tick.path("feeds").path(instrumentKey), ts);
-                    lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
+                    lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                 }
 
                 sink.tryEmitNext(tick);
@@ -635,7 +634,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                         maybeLogLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
-                        lastLtp.put(instrumentKey, new LatestQuote(ltp, Instant.ofEpochMilli(ts)));
+                        lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
 
                         if (selectionComputed.compareAndSet(false, true)) {
                             nseInstrumentService.filterStrikesAroundLtp(ltp);

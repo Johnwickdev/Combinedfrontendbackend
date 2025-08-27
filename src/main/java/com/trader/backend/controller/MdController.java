@@ -6,7 +6,8 @@ import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
 import com.trader.backend.service.SelectionService;
 import com.trader.backend.events.LtpEvent;
-import com.trader.backend.service.MarketHours;
+import com.trader.backend.service.InfluxTickService;
+import com.trader.backend.service.Tick;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -41,6 +42,7 @@ public class MdController {
     private final LiveFeedService liveFeedService;
     private final NseInstrumentService nseInstrumentService;
     private final SelectionService selectionService;
+    private final InfluxTickService influxTickService;
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -71,7 +73,7 @@ public class MdController {
 
     @GetMapping("/last-ltp")
     public ResponseEntity<Map<String, Object>> lastLtp(@RequestParam("instrumentKey") String instrumentKey) {
-        return liveFeedService.lastQuote(instrumentKey)
+        return liveFeedService.getLatestTick(instrumentKey)
                 .map(q -> {
                     Map<String, Object> body = new LinkedHashMap<>();
                     body.put("instrumentKey", instrumentKey);
@@ -87,7 +89,7 @@ public class MdController {
                                                              ServerHttpResponse response) {
         response.getHeaders().set(HttpHeaders.CACHE_CONTROL, "no-cache");
         try {
-            boolean open = MarketHours.isOpen(Instant.now());
+            boolean open = liveFeedService.isMarketOpen();
             Flux<ServerSentEvent<Map<String, Object>>> heartbeat = Flux.interval(Duration.ofSeconds(15))
                     .map(i -> ServerSentEvent.<Map<String, Object>>builder().comment("hb").build());
             if (open) {
@@ -118,10 +120,10 @@ public class MdController {
                     targetKeys = new ArrayList<>(liveFeedService.cachedKeys());
                 }
                 Flux<ServerSentEvent<Map<String, Object>>> tick = Flux.fromIterable(targetKeys)
-                        .map(k -> Map.entry(k, liveFeedService.lastQuote(k)))
+                        .map(k -> Map.entry(k, liveFeedService.getLatestTick(k)))
                         .filter(e -> e.getValue().isPresent())
                         .map(e -> {
-                            LiveFeedService.LatestQuote q = e.getValue().get();
+                            Tick q = e.getValue().get();
                             Map<String, Object> data = new LinkedHashMap<>();
                             data.put("instrumentKey", e.getKey());
                             data.put("ts", q.ts().toString());
@@ -141,25 +143,39 @@ public class MdController {
 
     @GetMapping("/ltp")
     public ResponseEntity<Map<String, Object>> getNiftyFutLtp() {
-        String instKey = selectionService.getMainFutureKey();
-        LiveFeedService.LatestQuote quote = liveFeedService.lastQuote(instKey).orElse(null);
-        Double ltp = quote != null ? quote.ltp() : null;
-        Instant ts = quote != null ? quote.ts() : null;
-        if (ltp == null) {
-            ltp = candleService.readLatestLtpFromInflux(instKey);
-            if (ltp != null) {
-                ts = Instant.now();
+        String instKey = selectionService.getCurrentNiftyFutureKey();
+        boolean marketOpen = liveFeedService.isMarketOpen();
+
+        Tick tick = null;
+        String source = "influx";
+
+        if (marketOpen) {
+            tick = liveFeedService.getLatestTick(instKey).orElse(null);
+            if (tick != null) {
+                source = "live";
             }
         }
-        if (ltp == null || ts == null) {
+
+        if (tick == null) {
+            tick = influxTickService.latestFutTick(instKey).orElse(null);
+        }
+
+        if (tick == null) {
             Map<String, Object> err = new LinkedHashMap<>();
             err.put("error", "ltp-unavailable");
             return ResponseEntity.status(503).body(err);
         }
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("instrumentKey", instKey);
-        body.put("ltp", ltp);
-        body.put("timestamp", ts.toString());
+        body.put("ltp", tick.ltp());
+        body.put("timestamp", tick.ts().toString());
+        body.put("marketOpen", marketOpen);
+        body.put("source", source);
+
+        long ageMs = Duration.between(tick.ts(), Instant.now()).toMillis();
+        log.debug("/md/ltp source={} age={}ms", source, ageMs);
+
         return ResponseEntity.ok(body);
     }
 }
