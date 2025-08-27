@@ -87,6 +87,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         return Optional.ofNullable(lastLtp.get(key));
     }
 
+    public Double getLatestLtp(String key) {
+        return lastQuote(key).map(LatestQuote::ltp).orElse(null);
+    }
+
     public Set<String> cachedKeys() {
         return lastLtp.keySet();
     }
