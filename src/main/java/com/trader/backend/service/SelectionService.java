@@ -8,7 +8,11 @@ import org.springframework.stereotype.Service;
 public class SelectionService {
     private final NseInstrumentService nseInstrumentService;
 
-    public String getMainFutureKey() {
+    /**
+     * Returns the instrument-key for the current month NIFTY future
+     * (earliest non-expired expiry).
+     */
+    public String getCurrentNiftyFutureKey() {
         return nseInstrumentService.nearestNiftyFutureKey().orElse(null);
     }
 }
