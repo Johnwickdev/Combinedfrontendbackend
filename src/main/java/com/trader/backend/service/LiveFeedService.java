@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -122,6 +123,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private final AtomicLong futWriteFails = new AtomicLong();
     private final AtomicLong optWriteFails = new AtomicLong();
     private final AtomicReference<String> lastInfluxError = new AtomicReference<>("");
+
+    private final Map<String, ConcurrentLinkedDeque<OptTick>> optionBuffers = new ConcurrentHashMap<>();
+
+    public record OptTick(Instant ts, String instrumentKey, String symbol, double ltp, int qty, int oi) {}
     /**
      * Exposed for your controllers to subscribe
      **/
@@ -510,6 +515,7 @@ public void streamFilteredNiftyOptions() {
                     maybeLogLtp(instrumentKey, ltp, ts);
                     writeTickToInflux(instrumentKey, feed, ts);
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
+                    bufferOptionTick(instrumentKey, feed, ts, ltp);
 
                     var result = quantAnalysisService.analyze(instrumentKey, feed);
                     if (result.signal() != QuantAnalysisService.Signal.NONE) {
@@ -567,6 +573,7 @@ JsonNode ltpNode = tick.path("feeds")
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     writeTickToInflux(instrumentKey, tick.path("feeds").path(instrumentKey), ts);
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
+                    bufferOptionTick(instrumentKey, tick.path("feeds").path(instrumentKey), ts, ltp);
                 }
 
                 sink.tryEmitNext(tick);
@@ -639,6 +646,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         maybeLogLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
                         lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
+                        bufferOptionTick(instrumentKey, feed, ts, ltp);
 
                         if (selectionComputed.compareAndSet(false, true)) {
                             nseInstrumentService.filterStrikesAroundLtp(ltp);
@@ -747,6 +755,51 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                 addNumericFields(p, val, key);
             }
         });
+    }
+
+    private void bufferOptionTick(String instrumentKey, JsonNode feed, long ts, double ltp) {
+        NseInstrument info = instrumentCache.computeIfAbsent(instrumentKey,
+                k -> mongoTemplate.findById(k, NseInstrument.class));
+        if (info == null) return;
+        String type = info.getInstrumentType();
+        if (type == null || !(type.equalsIgnoreCase("CE") || type.equalsIgnoreCase("PE"))) return;
+        String symbol = info.getTrading_symbol();
+        if (symbol == null) return;
+        int qty = findIntField(feed, "qty");
+        int oi = findIntField(feed, "oi");
+        OptTick tick = new OptTick(Instant.ofEpochMilli(ts), instrumentKey, symbol, ltp, qty, oi);
+        ConcurrentLinkedDeque<OptTick> dq = optionBuffers.computeIfAbsent(symbol, k -> new ConcurrentLinkedDeque<>());
+        dq.addFirst(tick);
+        while (dq.size() > 200) {
+            dq.removeLast();
+        }
+    }
+
+    private int findIntField(JsonNode node, String name) {
+        JsonNode n = findField(node, name);
+        return n != null && n.isNumber() ? n.intValue() : 0;
+    }
+
+    private JsonNode findField(JsonNode node, String name) {
+        if (node.has(name) && node.get(name).isNumber()) {
+            return node.get(name);
+        }
+        var it = node.fields();
+        while (it.hasNext()) {
+            var e = it.next();
+            JsonNode val = e.getValue();
+            if (val.isObject()) {
+                JsonNode found = findField(val, name);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    public List<OptTick> recentOptionTicks(String symbol) {
+        ConcurrentLinkedDeque<OptTick> dq = optionBuffers.get(symbol);
+        if (dq == null) return List.of();
+        return new ArrayList<>(dq);
     }
 
     private long extractTimestamp(JsonNode feed, JsonNode tick) {

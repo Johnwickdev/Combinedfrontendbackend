@@ -8,6 +8,8 @@ import com.trader.backend.service.SelectionService;
 import com.trader.backend.events.LtpEvent;
 import com.trader.backend.service.InfluxTickService;
 import com.trader.backend.service.Tick;
+import com.trader.backend.service.TradeHistoryService;
+import com.trader.backend.dto.TradeRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -46,6 +48,7 @@ public class MdController {
     private final NseInstrumentService nseInstrumentService;
     private final SelectionService selectionService;
     private final InfluxTickService influxTickService;
+    private final TradeHistoryService tradeHistoryService;
     private final AtomicBoolean fallbackLogged = new AtomicBoolean(false);
 
     @GetMapping("/candles")
@@ -174,5 +177,25 @@ public class MdController {
             return ResponseEntity.ok(body);
         }
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/trade-history")
+    public ResponseEntity<List<TradeRow>> tradeHistory(@RequestParam Optional<Integer> limit,
+                                                       @RequestParam Optional<String> side) {
+        int lim = limit.orElse(50);
+        if (lim < 1 || lim > 200) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "limit");
+        }
+        String s = side.orElse("both").toUpperCase();
+        if (!Set.of("CE", "PE", "BOTH").contains(s)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "side");
+        }
+        Optional<TradeHistoryService.Result> resOpt = tradeHistoryService.fetch(lim, s);
+        if (resOpt.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+        TradeHistoryService.Result res = resOpt.get();
+        log.info("GET /md/trade-history?limit={}&side={} — src={} — rows={}", lim, s, res.source(), res.rows().size());
+        return ResponseEntity.ok(res.rows());
     }
 }
