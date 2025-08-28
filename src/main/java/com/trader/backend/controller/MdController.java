@@ -28,7 +28,6 @@ import reactor.core.publisher.Mono;
 
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -148,14 +147,9 @@ public class MdController {
 
     @GetMapping("/ltp")
     public ResponseEntity<Map<String, Object>> ltp(@RequestParam("instrumentKey") String instrumentKey) {
-        Instant now = Instant.now();
         LtpService.Result res = ltpService.resolve(instrumentKey);
-        String age = "-";
-        if ("live".equals(res.source()) && res.ts() != null) {
-            age = String.valueOf(Duration.between(res.ts(), now).toMillis());
-        }
         Double val = res.ltp();
-        log.info("GET /md/ltp key={} -> {} src={} age={}", instrumentKey, val != null ? val : "null", res.source(), age);
+        log.info("LTP {} via {} value={} ts={}", instrumentKey, res.source(), val, res.ts());
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("instrumentKey", instrumentKey);

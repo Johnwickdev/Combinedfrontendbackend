@@ -7,11 +7,11 @@ import java.time.*;
  * and ignores exchange holidays.
  */
 public class MarketHours {
-    private static final String TZ_ID = System.getenv().getOrDefault("MARKET_TZ", "Asia/Kolkata");
-    private static final ZoneId TZ = ZoneId.of(TZ_ID);
-    private static final LocalTime OPEN = LocalTime.parse(System.getenv().getOrDefault("MARKET_OPEN_HHMM", "09:15"));
-    private static final LocalTime CLOSE = LocalTime.parse(System.getenv().getOrDefault("MARKET_CLOSE_HHMM", "15:30"));
-    private static final int BUFFER_MIN = Integer.parseInt(System.getenv().getOrDefault("MARKET_BUFFER_MIN", "2"));
+    // Fixed India market window (IST)
+    private static final ZoneId TZ = ZoneId.of("Asia/Kolkata");
+    private static final LocalTime OPEN = LocalTime.of(9, 15);
+    private static final LocalTime CLOSE = LocalTime.of(15, 30);
+    private static final int BUFFER_MIN = 2;
 
     public static ZoneId zone() { return TZ; }
     public static LocalTime openTime() { return OPEN; }
