@@ -157,8 +157,8 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     long opt = optWrites.get();
                     long futFail = futWriteFails.get();
                     long optFail = optWriteFails.get();
-                    log.info("Influx summary — FUT writes={}, OPT writes={} (last {}s)",
-                            fut, opt, influxSummaryMs / 1000);
+                    long window = influxSummaryMs / 1000;
+                    log.info("Influx writes — FUT={}/{}s OPT={}/{}s", fut, window, opt, window);
                     if (futFail > 0 || optFail > 0) {
                         log.warn("Influx failures — FUT={} OPT={} lastError={}",
                                 futFail, optFail, lastInfluxError.get());
@@ -168,6 +168,35 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     optWrites.addAndGet(-opt);
                     futWriteFails.addAndGet(-futFail);
                     optWriteFails.addAndGet(-optFail);
+                });
+
+        Flux.interval(Duration.ofSeconds(5))
+                .subscribe(i -> {
+                    Instant now = Instant.now();
+                    String futVal = "-";
+                    String futKey = nseInstrumentService.nearestNiftyFutureKey().orElse(null);
+                    if (futKey != null) {
+                        Tick t = lastTick.get(futKey);
+                        if (t != null && Duration.between(t.ts(), now).toMillis() <= 5000) {
+                            futVal = String.format("%.2f", t.ltp());
+                        }
+                    }
+                    long ce = 0;
+                    long pe = 0;
+                    for (Map.Entry<String, Tick> e : lastTick.entrySet()) {
+                        NseInstrument info = instrumentCache.computeIfAbsent(e.getKey(),
+                                k -> mongoTemplate.findById(k, NseInstrument.class));
+                        if (info == null) continue;
+                        long age = Duration.between(e.getValue().ts(), now).toMillis();
+                        if (age <= 5000) {
+                            String type = info.getInstrumentType();
+                            if (type != null) {
+                                if (type.equalsIgnoreCase("CE")) ce++;
+                                else if (type.equalsIgnoreCase("PE")) pe++;
+                            }
+                        }
+                    }
+                    log.info("LTP-SUMMARY liveFut={} liveCE={} livePE={}", futVal, ce, pe);
                 });
     }
 

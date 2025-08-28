@@ -6,8 +6,8 @@ import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.NseInstrumentService;
 import com.trader.backend.service.SelectionService;
 import com.trader.backend.events.LtpEvent;
-import com.trader.backend.service.InfluxTickService;
 import com.trader.backend.service.Tick;
+import com.trader.backend.service.LtpService;
 import com.trader.backend.service.TradeHistoryService;
 import com.trader.backend.dto.TradeRow;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +26,6 @@ import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -47,9 +46,8 @@ public class MdController {
     private final LiveFeedService liveFeedService;
     private final NseInstrumentService nseInstrumentService;
     private final SelectionService selectionService;
-    private final InfluxTickService influxTickService;
     private final TradeHistoryService tradeHistoryService;
-    private final AtomicBoolean fallbackLogged = new AtomicBoolean(false);
+    private final LtpService ltpService;
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -151,32 +149,24 @@ public class MdController {
     @GetMapping("/ltp")
     public ResponseEntity<Map<String, Object>> ltp(@RequestParam("instrumentKey") String instrumentKey) {
         Instant now = Instant.now();
-        if (liveFeedService.hasRecentFutWrites()) {
-            Optional<Tick> live = liveFeedService.getLatestTick(instrumentKey)
-                    .filter(t -> Duration.between(t.ts(), now).toMillis() <= 5000);
-            if (live.isPresent()) {
-                fallbackLogged.set(false);
-                Tick t = live.get();
-                Map<String, Object> body = new LinkedHashMap<>();
-                body.put("instrumentKey", instrumentKey);
-                body.put("ltp", t.ltp());
-                body.put("ts", t.ts().toString());
-                body.put("source", "live");
-                return ResponseEntity.ok(body);
-            }
+        LtpService.Result res = ltpService.resolve(instrumentKey);
+        String age = "-";
+        if ("live".equals(res.source()) && res.ts() != null) {
+            age = String.valueOf(Duration.between(res.ts(), now).toMillis());
         }
+        Double val = res.ltp();
+        log.info("GET /md/ltp key={} -> {} src={} age={}", instrumentKey, val != null ? val : "null", res.source(), age);
 
-        if (fallbackLogged.compareAndSet(false, true)) {
-            log.info("LTP falling back to InfluxDB");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("instrumentKey", instrumentKey);
+        body.put("source", res.source());
+        if (val != null) {
+            body.put("ltp", val);
         }
-        Optional<Double> hist = influxTickService.latestNiftyFutLtp();
-        if (hist.isPresent()) {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("ltp", hist.get());
-            body.put("source", "influx");
-            return ResponseEntity.ok(body);
+        if (res.ts() != null) {
+            body.put("ts", res.ts().toString());
         }
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.ok(body);
     }
 
     @GetMapping("/sector-trades")
