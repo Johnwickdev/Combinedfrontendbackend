@@ -50,6 +50,7 @@ class MdControllerTest {
         webTestClient.get().uri("/md/sector-trades")
                 .exchange()
                 .expectStatus().isOk()
+                .expectHeader().valueEquals("X-Source", "live")
                 .expectBodyList(TradeRow.class)
                 .hasSize(1)
                 .contains(row);
@@ -63,6 +64,7 @@ class MdControllerTest {
         webTestClient.get().uri("/md/sector-trades")
                 .exchange()
                 .expectStatus().isOk()
+                .expectHeader().valueEquals("X-Source", "none")
                 .expectBodyList(TradeRow.class)
                 .hasSize(0);
     }

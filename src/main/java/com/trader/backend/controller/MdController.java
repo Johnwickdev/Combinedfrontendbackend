@@ -160,7 +160,9 @@ public class MdController {
         if (res.ts() != null) {
             body.put("ts", res.ts().toString());
         }
-        return ResponseEntity.ok(body);
+        return ResponseEntity.ok()
+                .header("X-Source", res.source())
+                .body(body);
     }
 
     @GetMapping("/sector-trades")
@@ -178,6 +180,8 @@ public class MdController {
         List<TradeRow> rows = resOpt.map(TradeHistoryService.Result::rows).orElse(List.of());
         String src = resOpt.map(TradeHistoryService.Result::source).orElse("none");
         log.info("GET /md/sector-trades side={} limit={} src={} count={}", s, lim, src, rows.size());
-        return ResponseEntity.ok(rows);
+        return ResponseEntity.ok()
+                .header("X-Source", src)
+                .body(rows);
     }
 }

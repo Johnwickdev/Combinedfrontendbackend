@@ -84,6 +84,8 @@ private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
 
 private final AtomicLong lastAutoStartLog = new AtomicLong(0);
 
+    private final AtomicBoolean marketWasOpen = new AtomicBoolean(false);
+
 public enum OrchestratorState { IDLE, RUNNING, READY }
 private final AtomicReference<OrchestratorState> orchestratorState = new AtomicReference<>(OrchestratorState.IDLE);
 private final AtomicReference<String> lastSelectionSignature = new AtomicReference<>(null);
@@ -122,19 +124,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
 
-    @Value("${ltp.log.enabled:true}")
-    private boolean ltpLogEnabled;
-    @Value("${ltp.log.interval.ms:2000}")
-    private long ltpLogIntervalMs;
-    @Value("${ltp.log.min.price.delta:0.5}")
-    private double ltpLogMinDelta;
     @Value("${influx.bucket:}")
     private String influxBucket;
     @Value("${influx.org:}")
     private String influxOrg;
-
-    private final Map<String, LogState> logState = new ConcurrentHashMap<>();
-    private static class LogState { long lastTs; double lastPrice; }
 
     private final Map<String, NseInstrument> instrumentCache = new ConcurrentHashMap<>();
     private final AtomicLong futWrites = new AtomicLong();
@@ -166,6 +159,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         Flux.interval(Duration.ofSeconds(15))
                 .subscribe(i -> {
                     boolean open = MarketHours.isOpen(Instant.now());
+                    boolean wasOpen = marketWasOpen.getAndSet(open);
+                    if (wasOpen && !open) {
+                        onMarketClose();
+                    }
                     boolean futOn = futSubscribed.get();
                     int optCount = optSubscribedCount.get();
                     long fut = futWrites.getAndSet(0);
@@ -549,7 +546,7 @@ public void streamFilteredNiftyOptions() {
                     double ltp = ltpNode.asDouble();
                     long ts = extractTimestamp(feed, tick);
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
-                    maybeLogLtp(instrumentKey, ltp, ts);
+                    logLtp(instrumentKey, ltp, ts);
                     writeTickToInflux(instrumentKey, feed, ts);
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     bufferOptionTick(instrumentKey, feed, ts, ltp);
@@ -606,7 +603,7 @@ JsonNode ltpNode = tick.path("feeds")
                 if (!ltpNode.isMissingNode()) {
                     double ltp = ltpNode.asDouble();
                     long ts = extractTimestamp(tick.path("feeds").path(instrumentKey), tick);
-                    maybeLogLtp(instrumentKey, ltp, ts);
+                    logLtp(instrumentKey, ltp, ts);
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     writeTickToInflux(instrumentKey, tick.path("feeds").path(instrumentKey), ts);
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
@@ -682,7 +679,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         double ltp = ltpNode.asDouble();
                         long ts = extractTimestamp(feed, tick);
                         ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
-                        maybeLogLtp(instrumentKey, ltp, ts);
+                        logLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
                         lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                         bufferOptionTick(instrumentKey, feed, ts, ltp);
@@ -749,14 +746,42 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
     return local.asFlux();
 }
 
-    private void maybeLogLtp(String instrumentKey, double ltp, long ts) {
-        if (!ltpLogEnabled) return;
-        LogState st = logState.computeIfAbsent(instrumentKey, k -> new LogState());
-        if (ts - st.lastTs >= ltpLogIntervalMs && Math.abs(ltp - st.lastPrice) >= ltpLogMinDelta) {
-            log.info("LTP key={} price={} ts={}", instrumentKey, ltp, Instant.ofEpochMilli(ts));
-            st.lastTs = ts;
-            st.lastPrice = ltp;
+    private void logLtp(String instrumentKey, double ltp, long ts) {
+        NseInstrument info = instrumentCache.computeIfAbsent(instrumentKey,
+                k -> mongoTemplate.findById(k, NseInstrument.class));
+        String symbol = info != null && info.getTradingSymbol() != null ? info.getTradingSymbol() : instrumentKey;
+        log.info("LTP [{}] live={} ts={}", symbol, ltp, Instant.ofEpochMilli(ts));
+    }
+
+    private void onMarketClose() {
+        double futPrice = 0.0;
+        long optRows = 0;
+        String futKey = nseInstrumentService.nearestNiftyFutureKey().orElse(null);
+        if (futKey != null) {
+            Tick t = lastTick.get(futKey);
+            if (t != null) {
+                ObjectNode feed = om.createObjectNode().put("ltp", t.ltp());
+                writeTickToInflux(futKey, feed, t.ts().toEpochMilli());
+                logLtp(futKey, t.ltp(), t.ts().toEpochMilli());
+                futPrice = t.ltp();
+            }
         }
+        for (var dq : optionBuffers.values()) {
+            OptTick t = dq.peekFirst();
+            if (t == null) continue;
+            ObjectNode feed = om.createObjectNode().put("ltp", t.ltp());
+            if (t.qty() > 0) feed.put("qty", t.qty());
+            if (t.oi() > 0) feed.put("oi", t.oi());
+            writeTickToInflux(t.instrumentKey(), feed, t.ts().toEpochMilli());
+            logLtp(t.instrumentKey(), t.ltp(), t.ts().toEpochMilli());
+            optRows++;
+        }
+        log.info("MARKET CLOSED — last snapshot FUT={}, OPT rows={}", futPrice, optRows);
+        lastTick.clear();
+        optionBuffers.clear();
+        connected.set(false);
+        futSubscribed.set(false);
+        optSubscribedCount.set(0);
     }
 
     private void writeTickToInflux(String instrumentKey, JsonNode feed, long ts) {
@@ -766,7 +791,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                 k -> mongoTemplate.findById(k, NseInstrument.class));
         if (info == null) return;
         boolean isFut = info.getInstrumentType() != null && info.getInstrumentType().toUpperCase().contains("FUT");
-        String measurement = isFut ? "nifty_future_ticks" : "nifty_option_ticks";
+        String measurement = isFut ? "nifty_fut_ltp" : "nifty_option_ticks";
 
         long exp = info.getExpiry();
         if (exp < 1_000_000_000_000L) exp *= 1000L;
