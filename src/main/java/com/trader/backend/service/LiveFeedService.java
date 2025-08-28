@@ -37,6 +37,8 @@ import org.springframework.beans.factory.annotation.Value;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -71,6 +73,8 @@ public class LiveFeedService {
     private boolean mockMode;
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
 private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
+
+private final AtomicLong lastAutoStartLog = new AtomicLong(0);
 
 public enum OrchestratorState { IDLE, RUNNING, READY }
 private final AtomicReference<OrchestratorState> orchestratorState = new AtomicReference<>(OrchestratorState.IDLE);
@@ -169,13 +173,34 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
     public void connectIfOpenOrSchedule() {
         Instant now = Instant.now();
-        if (MarketHours.isOpen(now)) {
+        ZoneId tz = MarketHours.zone();
+        ZonedDateTime nowIst = now.atZone(tz);
+        ZonedDateTime openIst = nowIst.with(MarketHours.openTime()).withSecond(0).withNano(0);
+        ZonedDateTime closeIst = nowIst.with(MarketHours.closeTime()).withSecond(0).withNano(0);
+
+        boolean isTradingWindowNow = MarketHours.isOpen(now);
+        boolean todayIsTradingDay = MarketHours.isTradingDay(nowIst.toLocalDate());
+        boolean tokenPresent = auth.currentToken() != null;
+        boolean connected = orchestratorState.get() == OrchestratorState.READY;
+        boolean shouldStart = isTradingWindowNow && todayIsTradingDay && tokenPresent && !connected;
+
+        String decision = shouldStart ? "START" : "WAIT";
+
+        if (shouldStart) {
             initLiveWebSocket();
-        } else {
+        } else if (!isTradingWindowNow) {
             Instant next = MarketHours.nextOpenAfter(now);
             log.info("Market closed — scheduling live feed start at {}", next);
             long delay = Duration.between(now, next).toMillis();
             Mono.delay(Duration.ofMillis(delay)).subscribe(v -> initLiveWebSocket());
+        }
+
+        long nowMs = System.currentTimeMillis();
+        long prev = lastAutoStartLog.get();
+        if (nowMs - prev >= 60_000 && lastAutoStartLog.compareAndSet(prev, nowMs)) {
+            log.info("AUTO-START-CHECK nowIst={} openIst={} closeIst={} isTradingWindowNow={} todayIsTradingDay={} tokenPresent={} connected={} decision={}",
+                    nowIst.toLocalTime(), openIst.toLocalTime(), closeIst.toLocalTime(),
+                    isTradingWindowNow, todayIsTradingDay, tokenPresent, connected, decision);
         }
     }
 
