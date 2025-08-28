@@ -68,7 +68,7 @@ public class TradeHistoryService {
             return Optional.of(new Result(List.of(), "live"));
         }
         List<String> symbols = filtered.stream()
-                .map(NseInstrument::getTrading_symbol)
+                .map(NseInstrument::getTradingSymbol)
                 .filter(Objects::nonNull)
                 .toList();
 

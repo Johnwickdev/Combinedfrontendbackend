@@ -818,7 +818,9 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
         String t = info.getInstrumentType();
         if (!isFut && t != null) {
             p.addTag("type", t.toUpperCase());
-            p.addTag("strike", String.valueOf(info.getStrike_price())) ;
+            Integer sp = info.getStrikePrice();
+            int strike = (sp != null) ? sp : 0;
+            p.addTag("strike", String.valueOf(strike));
         }
 
         JsonNode ltpNode = findField(feed, "ltp");
@@ -847,7 +849,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
         if (info == null) return;
         String type = info.getInstrumentType();
         if (type == null || !(type.equalsIgnoreCase("CE") || type.equalsIgnoreCase("PE"))) return;
-        String symbol = info.getTrading_symbol();
+        String symbol = info.getTradingSymbol();
         if (symbol == null) return;
         int qty = findIntField(feed, "qty");
         int oi = findIntField(feed, "oi");

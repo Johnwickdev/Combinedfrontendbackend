@@ -160,7 +160,7 @@ public void filterAndSaveStrikesAroundLtp(double niftyLtp) {
 
         // ⚙️ Filter CE and PE instruments for NIFTY
         List<NseInstrument> filtered = all.stream()
-            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
             .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
             .filter(i -> targetStrikes.contains(i.getStrikePrice()))
             .collect(Collectors.toList());
@@ -240,7 +240,7 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     // 4) Sort by distance from base, then by strike
     Comparator<NseInstrument> byDistance = Comparator
             .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
-            .thenComparingDouble(NseInstrument::getStrikePrice);
+            .thenComparingInt(NseInstrument::getStrikePrice);
 
     List<NseInstrument> ceSorted = pool.stream()
             .filter(i -> "CE".equals(i.getInstrumentType()))
@@ -288,7 +288,7 @@ public void filterStrikesAroundLtp(double niftyLtp) {
             // Filter only CE/PE where underlying is Nifty 50
             List<NseInstrument> niftyOptions = all.stream()
                     .filter(inst ->
-                            "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()) &&
+                            "NSE_INDEX|Nifty 50".equals(inst.getUnderlyingKey()) &&
                                     "NSE_FO".equals(inst.getSegment()) &&
                                     ("CE".equals(inst.getInstrumentType()) || "PE".equals(inst.getInstrumentType()))
                     )
@@ -336,7 +336,7 @@ public List<String> getInstrumentKeysForLiveSubscription() {
 
     List<String> keys = new ArrayList<>(
             docs.stream()
-                .map(NseInstrument::getInstrument_key)
+                .map(NseInstrument::getInstrumentKey)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList()
@@ -383,7 +383,7 @@ public SelectionData currentSelectionData() {
 
     List<String> keys = new ArrayList<>(
             docs.stream()
-                    .map(NseInstrument::getInstrument_key)
+                    .map(NseInstrument::getInstrumentKey)
                     .filter(Objects::nonNull)
                     .distinct()
                     .toList()
@@ -417,7 +417,7 @@ public void saveNiftyFuturesToMongo() {
         if (i.getName() != null) i.setName(i.getName().trim());
         if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
         if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-        if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+        if (i.getUnderlyingKey() != null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
     }
     // Step 1: Filter valid NIFTY FUTs
     List<NseInstrument> niftyFutures = all.stream()
@@ -425,15 +425,15 @@ public void saveNiftyFuturesToMongo() {
             .filter(inst -> "NSE_FO".equalsIgnoreCase(inst.getSegment()))
             .filter(inst -> "NIFTY".equalsIgnoreCase(inst.getName()))
             .filter(inst -> !inst.isWeekly())
-            .filter(inst -> inst.getLot_size() == 75)
-            .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlying_key()))
+            .filter(inst -> inst.getLotSize() == 75)
+            .filter(inst -> "NSE_INDEX|Nifty 50".equals(inst.getUnderlyingKey()))
             .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
             .toList();
 
     log.info("✅ Found {} NIFTY FUT contracts with lot size 75", niftyFutures.size());
     niftyFutures.forEach(i ->
             log.debug("📄 {} | expiry={} | key={}"
-                    , i.getTrading_symbol(), i.getExpiry(), i.getInstrument_key())
+                    , i.getTradingSymbol(), i.getExpiry(), i.getInstrumentKey())
 
     );
 
@@ -455,7 +455,7 @@ Optional<NseInstrument> selectCurrentNiftyFuture(List<NseInstrument> futs) {
 
     // de-duplicate by instrument_key
     Map<String, NseInstrument> unique = futs.stream()
-            .collect(Collectors.toMap(NseInstrument::getInstrument_key, f -> f, (a, b) -> a));
+            .collect(Collectors.toMap(NseInstrument::getInstrumentKey, f -> f, (a, b) -> a));
 
     ZonedDateTime now = ZonedDateTime.now(IST);
     List<String> otherStatuses = new ArrayList<>();
@@ -470,8 +470,8 @@ Optional<NseInstrument> selectCurrentNiftyFuture(List<NseInstrument> futs) {
         LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
         ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
         boolean expired = now.isAfter(cutoff);
-        String month = extractMonth(f.getTrading_symbol());
-        log.info("📄 {} | expiry={} IST {}", f.getTrading_symbol(), cutoff, expired ? "[expired]" : "[valid]");
+        String month = extractMonth(f.getTradingSymbol());
+        log.info("📄 {} | expiry={} IST {}", f.getTradingSymbol(), cutoff, expired ? "[expired]" : "[valid]");
         if (expired) {
             otherStatuses.add(month + " expired");
         } else if (chosen == null) {
@@ -488,7 +488,7 @@ Optional<NseInstrument> selectCurrentNiftyFuture(List<NseInstrument> futs) {
     }
 
     log.info("Chosen current NIFTY FUT = {} | expiry={} IST (picked as nearest non-expired vs [{}])",
-            chosen.getTrading_symbol(),
+            chosen.getTradingSymbol(),
             chosenExpiry,
             String.join(", ", otherStatuses));
 
@@ -523,7 +523,7 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
         return Mono.error(new RuntimeException("No future expiry NIFTY FUT found"));
     }
 
-    String instrumentKey = current.get().getInstrument_key();
+    String instrumentKey = current.get().getInstrumentKey();
     log.info("📌 Selected NIFTY FUT key for LTP: " + instrumentKey);
 
     // 3. Call Upstox LTP API
@@ -588,7 +588,7 @@ public Optional<String> nearestNiftyFutureKey() {
         LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
         ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
         boolean expired = now.isAfter(cutoff);
-        log.info("📄 {} | expiry={} IST {}", f.getTrading_symbol(), cutoff, expired ? "[expired]" : "[valid]");
+        log.info("📄 {} | expiry={} IST {}", f.getTradingSymbol(), cutoff, expired ? "[expired]" : "[valid]");
     });
 
     // query DB for nearest non-expired future
@@ -614,23 +614,23 @@ public Optional<String> nearestNiftyFutureKey() {
     mongoTemplate.getCollection("current_nifty_future")
             .replaceOne(new Document("_id", doc.get("_id")), doc, new ReplaceOptions().upsert(true));
 
-    String chosenMonth = extractMonth(current.getTrading_symbol());
+    String chosenMonth = extractMonth(current.getTradingSymbol());
     List<String> reasons = new ArrayList<>();
     for (NseInstrument f : top) {
-        if (f.getInstrument_key().equals(current.getInstrument_key())) continue;
+        if (f.getInstrumentKey().equals(current.getInstrumentKey())) continue;
         LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
         ZonedDateTime cutoff = d.atTime(EXPIRY_CUTOFF).atZone(IST);
-        String m = extractMonth(f.getTrading_symbol());
+        String m = extractMonth(f.getTradingSymbol());
         if (now.isAfter(cutoff)) {
             reasons.add(m + " expired on " + cutoff + " IST");
         } else {
             reasons.add(m + " later (" + cutoff + " IST)");
         }
     }
-    log.info("Chosen current NIFTY FUT = {} | expiry={} IST ({}).", current.getTrading_symbol(),
+    log.info("Chosen current NIFTY FUT = {} | expiry={} IST ({}).", current.getTradingSymbol(),
             Instant.ofEpochMilli(current.getExpiry()).atZone(IST), String.join("; ", reasons));
 
-    return Optional.ofNullable(current.getInstrument_key());
+    return Optional.ofNullable(current.getInstrumentKey());
 }
 
 public void refreshNiftyOptionsCurrentWeek() {
@@ -644,13 +644,13 @@ public void refreshNiftyOptionsCurrentWeek() {
             if (i.getName() != null) i.setName(i.getName().trim());
             if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
             if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+            if (i.getUnderlyingKey() != null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
         }
 
         long currentWeekExpiry = detectCurrentWeekExpiryEpoch(all);
 
         List<NseInstrument> currentWeek = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
                 .filter(i -> i.getExpiry() == currentWeekExpiry)
@@ -669,7 +669,7 @@ public void refreshNiftyOptionsCurrentWeek() {
 private long detectCurrentWeekExpiryEpoch(List<NseInstrument> all) {
     long now = System.currentTimeMillis();
     return all.stream()
-            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
             .filter(i -> "NSE_FO".equals(i.getSegment()))
             .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
             .mapToLong(NseInstrument::getExpiry)   // primitive long, no nulls
@@ -712,7 +712,7 @@ public void refreshNiftyOptionsByNearestExpiryFromJson() {
 
         // 1) Find nearest future expiry among NIFTY CE/PE contracts
         OptionalLong nearestExpiryOpt = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> {
                     String t = i.getInstrumentType();
@@ -732,7 +732,7 @@ public void refreshNiftyOptionsByNearestExpiryFromJson() {
 
         // 2) Keep only that expiry
         List<NseInstrument> currentCycle = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> {
                     String t = i.getInstrumentType();
@@ -780,11 +780,11 @@ public Optional<String> getCurrentMonthNiftyFutKey() {
                 LocalDate d = Instant.ofEpochMilli(f.getExpiry()).atZone(IST).toLocalDate();
                 return d.getYear() == y && d.getMonthValue() == m;
             })
-            .map(NseInstrument::getInstrument_key)
+            .map(NseInstrument::getInstrumentKey)
             .findFirst()
             .or(() -> futs.stream()
                     .sorted(Comparator.comparingLong(NseInstrument::getExpiry))
-                    .map(NseInstrument::getInstrument_key)
+                    .map(NseInstrument::getInstrumentKey)
                     .findFirst());
 }
 // NEW: returns [startMs, endMs] for the nearest future option expiry DATE present in NSE.json (IST)
@@ -797,7 +797,7 @@ private long[] nearestOptionExpiryDayWindowFromJsonIST() {
         List<LocalDate> days = all.stream()
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> {
                     String t = i.getInstrumentType();
                     return "CE".equalsIgnoreCase(t) || "PE".equalsIgnoreCase(t);
@@ -840,10 +840,10 @@ public void filterTenTenAroundLtpAndSave(double niftyLtp) {
                 if (i.getName()!=null) i.setName(i.getName().trim());
                 if (i.getSegment()!=null) i.setSegment(i.getSegment().trim());
                 if (i.getInstrumentType()!=null) i.setInstrumentType(i.getInstrumentType().trim());
-                if (i.getUnderlying_key()!=null) i.setUnderlying_key(i.getUnderlying_key().trim());
+                if (i.getUnderlyingKey()!=null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
             }
             universe = all.stream()
-                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                     .filter(i -> "NSE_FO".equals(i.getSegment()))
                     .filter(i -> {
                         String t = i.getInstrumentType();
@@ -866,16 +866,16 @@ public void filterTenTenAroundLtpAndSave(double niftyLtp) {
     // CE buckets (ITM below ATM, OTM above)
     var ceATM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()==atm).toList();
     var ceITM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()<atm)
-            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice).reversed()).toList();
+            .sorted(Comparator.comparingInt(NseInstrument::getStrikePrice).reversed()).toList();
     var ceOTM = universe.stream().filter(i -> "CE".equals(i.getInstrumentType()) && i.getStrikePrice()>atm)
-            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice)).toList();
+            .sorted(Comparator.comparingInt(NseInstrument::getStrikePrice)).toList();
 
     // PE buckets (ITM above ATM, OTM below)
     var peATM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()==atm).toList();
     var peITM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()>atm)
-            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice)).toList();
+            .sorted(Comparator.comparingInt(NseInstrument::getStrikePrice)).toList();
     var peOTM = universe.stream().filter(i -> "PE".equals(i.getInstrumentType()) && i.getStrikePrice()<atm)
-            .sorted(Comparator.comparingDouble(NseInstrument::getStrikePrice).reversed()).toList();
+            .sorted(Comparator.comparingInt(NseInstrument::getStrikePrice).reversed()).toList();
 
     List<NseInstrument> pick = new ArrayList<>(20);
 
@@ -892,7 +892,7 @@ public void filterTenTenAroundLtpAndSave(double niftyLtp) {
     // de‑dupe by instrument_key, keep order
     LinkedHashMap<String,NseInstrument> uniq = new LinkedHashMap<>();
     for (NseInstrument i : pick) {
-        if (i.getInstrument_key()!=null) uniq.putIfAbsent(i.getInstrument_key(), i);
+        if (i.getInstrumentKey()!=null) uniq.putIfAbsent(i.getInstrumentKey(), i);
     }
     List<NseInstrument> finalSel = new ArrayList<>(uniq.values());
 
@@ -957,12 +957,12 @@ public int ensureWeeklyUniverseLoaded() {
             if (i.getName() != null) i.setName(i.getName().trim());
             if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
             if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-            if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+            if (i.getUnderlyingKey() != null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
         }
 
         long now = System.currentTimeMillis();
         OptionalLong nearestFuture = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> {
                     String t = i.getInstrumentType();
@@ -986,7 +986,7 @@ public int ensureWeeklyUniverseLoaded() {
                 chosenDay, formatIstDateTime(chosenStart), formatIstDateTime(chosenEnd));
 
         List<NseInstrument> current = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlying_key()))
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
                 .filter(i -> "NSE_FO".equals(i.getSegment()))
                 .filter(i -> {
                     String t = i.getInstrumentType();
@@ -1019,7 +1019,7 @@ private void normalizeInstrument(NseInstrument i) {
     if (i.getName() != null) i.setName(i.getName().trim());
     if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
     if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-    if (i.getUnderlying_key() != null) i.setUnderlying_key(i.getUnderlying_key().trim());
+    if (i.getUnderlyingKey() != null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
     // normalize expiry to ms
     i.setExpiry(normalizeEpoch(i.getExpiry()));
 }
