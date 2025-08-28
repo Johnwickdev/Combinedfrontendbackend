@@ -1,6 +1,5 @@
 package com.trader.backend.entity;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
@@ -97,53 +96,5 @@ public class NseInstrument {
     @JsonProperty("qty_multiplier")
     @Field("qty_multiplier")
     private double qtyMultiplier;
-
-    @Deprecated
-    @JsonIgnore
-    public String getInstrument_key() {
-        return getInstrumentKey();
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public void setInstrument_key(String v) {
-        setInstrumentKey(v);
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public String getAsset_symbol() {
-        return getAssetSymbol();
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public void setAsset_symbol(String v) {
-        setAssetSymbol(v);
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public String getUnderlying_symbol() {
-        return getUnderlyingSymbol();
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public void setUnderlying_symbol(String v) {
-        setUnderlyingSymbol(v);
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public String getExchange_token() {
-        return getExchangeToken();
-    }
-
-    @Deprecated
-    @JsonIgnore
-    public void setExchange_token(String v) {
-        setExchangeToken(v);
-    }
 }
 

@@ -128,8 +128,6 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private long ltpLogIntervalMs;
     @Value("${ltp.log.min.price.delta:0.5}")
     private double ltpLogMinDelta;
-    @Value("${influx.summary.interval.ms:60000}")
-    private long influxSummaryMs;
     @Value("${influx.bucket:}")
     private String influxBucket;
     @Value("${influx.org:}")
@@ -141,9 +139,6 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private final Map<String, NseInstrument> instrumentCache = new ConcurrentHashMap<>();
     private final AtomicLong futWrites = new AtomicLong();
     private final AtomicLong optWrites = new AtomicLong();
-    private final AtomicLong futWriteFails = new AtomicLong();
-    private final AtomicLong optWriteFails = new AtomicLong();
-    private final AtomicReference<String> lastInfluxError = new AtomicReference<>("");
 
     private final Map<String, ConcurrentLinkedDeque<OptTick>> optionBuffers = new ConcurrentHashMap<>();
 
@@ -168,53 +163,17 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     selectionComputed.set(false);
                 });
 
-        Flux.interval(Duration.ofMillis(influxSummaryMs))
+        Flux.interval(Duration.ofSeconds(15))
                 .subscribe(i -> {
-                    long fut = futWrites.get();
-                    long opt = optWrites.get();
-                    long futFail = futWriteFails.get();
-                    long optFail = optWriteFails.get();
-                    long window = influxSummaryMs / 1000;
-                    log.info("Influx writes — FUT={}/{}s OPT={}/{}s", fut, window, opt, window);
+                    boolean open = MarketHours.isOpen(Instant.now());
+                    boolean futOn = futSubscribed.get();
+                    int optCount = optSubscribedCount.get();
+                    long fut = futWrites.getAndSet(0);
+                    long opt = optWrites.getAndSet(0);
                     ticksLast60s.set(fut + opt);
-                    if (futFail > 0 || optFail > 0) {
-                        log.warn("Influx failures — FUT={} OPT={} lastError={}",
-                                futFail, optFail, lastInfluxError.get());
-                        lastInfluxError.set("");
-                    }
-                    futWrites.addAndGet(-fut);
-                    optWrites.addAndGet(-opt);
-                    futWriteFails.addAndGet(-futFail);
-                    optWriteFails.addAndGet(-optFail);
-                });
-
-        Flux.interval(Duration.ofSeconds(5))
-                .subscribe(i -> {
-                    Instant now = Instant.now();
-                    String futVal = "-";
-                    String futKey = nseInstrumentService.nearestNiftyFutureKey().orElse(null);
-                    if (futKey != null) {
-                        Tick t = lastTick.get(futKey);
-                        if (t != null && Duration.between(t.ts(), now).toMillis() <= 5000) {
-                            futVal = String.format("%.2f", t.ltp());
-                        }
-                    }
-                    long ce = 0;
-                    long pe = 0;
-                    for (Map.Entry<String, Tick> e : lastTick.entrySet()) {
-                        NseInstrument info = instrumentCache.computeIfAbsent(e.getKey(),
-                                k -> mongoTemplate.findById(k, NseInstrument.class));
-                        if (info == null) continue;
-                        long age = Duration.between(e.getValue().ts(), now).toMillis();
-                        if (age <= 5000) {
-                            String type = info.getInstrumentType();
-                            if (type != null) {
-                                if (type.equalsIgnoreCase("CE")) ce++;
-                                else if (type.equalsIgnoreCase("PE")) pe++;
-                            }
-                        }
-                    }
-                    log.info("LTP-SUMMARY liveFut={} liveCE={} livePE={}", futVal, ce, pe);
+                    String source = connected.get() ? "live" : "influx";
+                    log.info("HEARTBEAT market={} liveFut={} liveOpts={} writesFut={}/15s writesOpt={}/15s sourceUsed={}",
+                            open ? "open" : "closed", futOn ? "on" : "off", optCount, fut, opt, source);
                 });
     }
 
@@ -234,12 +193,12 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         String decision = shouldStart ? "START" : "WAIT";
 
         if (shouldStart) {
-            initLiveWebSocket();
+            startLive();
         } else if (!isTradingWindowNow) {
             Instant next = MarketHours.nextOpenAfter(now);
             log.info("Market closed — scheduling live feed start at {}", next);
             long delay = Duration.between(now, next).toMillis();
-            Mono.delay(Duration.ofMillis(delay)).subscribe(v -> initLiveWebSocket());
+            Mono.delay(Duration.ofMillis(delay)).subscribe(v -> startLive());
         }
 
         long nowMs = System.currentTimeMillis();
@@ -249,6 +208,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     nowIst.toLocalTime(), openIst.toLocalTime(), closeIst.toLocalTime(),
                     isTradingWindowNow, todayIsTradingDay, tokenPresent, connected, decision);
         }
+    }
+
+    public void startLive() {
+        initLiveWebSocket();
     }
 
     public void initLiveWebSocket() {
@@ -838,8 +801,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
             writeApi.writePoint(influxBucket, influxOrg, p);
             if (isFut) futWrites.incrementAndGet(); else optWrites.incrementAndGet();
         } catch (Exception e) {
-            lastInfluxError.set(e.getMessage());
-            if (isFut) futWriteFails.incrementAndGet(); else optWriteFails.incrementAndGet();
+            // ignore write failures but do not block main loop
         }
     }
 
