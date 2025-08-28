@@ -736,7 +736,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                 k -> mongoTemplate.findById(k, NseInstrument.class));
         if (info == null) return;
         boolean isFut = info.getInstrumentType() != null && info.getInstrumentType().toUpperCase().contains("FUT");
-        String measurement = isFut ? "nifty_fut_ticks" : "nifty_option_ticks";
+        String measurement = isFut ? "nifty_future_ticks" : "nifty_option_ticks";
 
         long exp = info.getExpiry();
         if (exp < 1_000_000_000_000L) exp *= 1000L;

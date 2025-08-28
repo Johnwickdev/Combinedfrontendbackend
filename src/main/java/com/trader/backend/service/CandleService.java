@@ -57,7 +57,7 @@ public class CandleService {
             return null;
         }
         String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
-                "nifty_fut_ticks" : "nifty_option_ticks";
+                "nifty_future_ticks" : "nifty_option_ticks";
         String flux = String.format("from(bucket: \"%s\") |> range(start: -1d) |> " +
                         "filter(fn: (r) => r._measurement == \"%s\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
                 influxBucket, measurement, instrumentKey);
@@ -80,7 +80,7 @@ public class CandleService {
             return new CandleResponse(key, tf, List.of());
         }
         String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
-                "nifty_fut_ticks" : "nifty_option_ticks";
+                "nifty_future_ticks" : "nifty_option_ticks";
 
         Map<Instant, CandleBuilder> map = new HashMap<>();
 
