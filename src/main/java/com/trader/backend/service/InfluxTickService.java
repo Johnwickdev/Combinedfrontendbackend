@@ -29,6 +29,8 @@ public class InfluxTickService {
     @Value("${influx.bucket:}")
     private String influxBucket;
 
+    public record Sanity(long futPoints, long optPoints, Instant futLastTs, Instant optLastTs) {}
+
     /**
      * Fetches the latest tick for the given instrument key.
      */
@@ -80,5 +82,31 @@ public class InfluxTickService {
             }
         }
         return Optional.empty();
+    }
+
+    public Sanity sanityLast2m() {
+        QueryApi queryApi = influxDBClient.getQueryApi();
+        String futFlux = String.format("from(bucket: \"%s\") |> range(start: -2m) |> filter(fn: (r) => r._measurement == \"nifty_future_ticks\" and r._field == \"ltp\") |> sort(columns:[\"_time\"])", influxBucket);
+        List<FluxTable> futTables = queryApi.query(futFlux, influxOrg);
+        long futCount = 0; Instant futLast = null;
+        for (FluxTable t : futTables) {
+            for (FluxRecord rec : t.getRecords()) {
+                futCount++;
+                Object timeObj = rec.getValueByKey("_time");
+                if (timeObj instanceof Instant ts) futLast = ts;
+            }
+        }
+
+        String optFlux = String.format("from(bucket: \"%s\") |> range(start: -2m) |> filter(fn: (r) => r._measurement == \"nifty_option_ticks\" and r._field == \"ltp\") |> sort(columns:[\"_time\"])", influxBucket);
+        List<FluxTable> optTables = queryApi.query(optFlux, influxOrg);
+        long optCount = 0; Instant optLast = null;
+        for (FluxTable t : optTables) {
+            for (FluxRecord rec : t.getRecords()) {
+                optCount++;
+                Object timeObj = rec.getValueByKey("_time");
+                if (timeObj instanceof Instant ts) optLast = ts;
+            }
+        }
+        return new Sanity(futCount, optCount, futLast, optLast);
     }
 }
