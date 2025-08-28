@@ -40,7 +40,7 @@ public class InfluxTickService {
             return Optional.empty();
         }
         String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
-                "nifty_future_ticks" : "nifty_option_ticks";
+                "nifty_fut_ltp" : "nifty_option_ticks";
         String flux = String.format("from(bucket: \"%s\") |> range(start: -30d) |> " +
                         "filter(fn: (r) => r._measurement == \"%s\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
                 influxBucket, measurement, instrumentKey);
@@ -86,7 +86,7 @@ public class InfluxTickService {
 
     public Sanity sanityLast2m() {
         QueryApi queryApi = influxDBClient.getQueryApi();
-        String futFlux = String.format("from(bucket: \"%s\") |> range(start: -2m) |> filter(fn: (r) => r._measurement == \"nifty_future_ticks\" and r._field == \"ltp\") |> sort(columns:[\"_time\"])", influxBucket);
+        String futFlux = String.format("from(bucket: \"%s\") |> range(start: -2m) |> filter(fn: (r) => r._measurement == \"nifty_fut_ltp\" and r._field == \"ltp\") |> sort(columns:[\"_time\"])", influxBucket);
         List<FluxTable> futTables = queryApi.query(futFlux, influxOrg);
         long futCount = 0; Instant futLast = null;
         for (FluxTable t : futTables) {
