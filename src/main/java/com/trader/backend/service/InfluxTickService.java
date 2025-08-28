@@ -38,7 +38,7 @@ public class InfluxTickService {
             return Optional.empty();
         }
         String measurement = "FUT".equalsIgnoreCase(opt.get().getInstrumentType()) ?
-                "nifty_fut_ticks" : "nifty_option_ticks";
+                "nifty_future_ticks" : "nifty_option_ticks";
         String flux = String.format("from(bucket: \"%s\") |> range(start: -30d) |> " +
                         "filter(fn: (r) => r._measurement == \"%s\" and r.instrumentKey == \"%s\" and r._field == \"ltp\") |> last()",
                 influxBucket, measurement, instrumentKey);
