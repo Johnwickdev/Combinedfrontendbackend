@@ -23,7 +23,7 @@ public class NseInstrumentServiceTest {
         NseInstrument next = inst("k3", today.plusMonths(1));
         Optional<NseInstrument> opt = svc.selectCurrentNiftyFuture(List.of(expired, current, next));
         assertTrue(opt.isPresent());
-        assertEquals("k2", opt.get().getInstrument_key());
+        assertEquals("k2", opt.get().getInstrumentKey());
     }
 
     @Test
@@ -35,12 +35,12 @@ public class NseInstrumentServiceTest {
         NseInstrument further = inst("k3", today.plusMonths(2));
         Optional<NseInstrument> opt = svc.selectCurrentNiftyFuture(List.of(expired, next, further));
         assertTrue(opt.isPresent());
-        assertEquals("k2", opt.get().getInstrument_key());
+        assertEquals("k2", opt.get().getInstrumentKey());
     }
 
     private static NseInstrument inst(String key, LocalDate date) {
         NseInstrument i = new NseInstrument();
-        i.setInstrument_key(key);
+        i.setInstrumentKey(key);
         long exp = date.atStartOfDay(ZoneId.of("Asia/Kolkata")).toInstant().toEpochMilli();
         i.setExpiry(exp);
         return i;

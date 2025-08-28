@@ -283,8 +283,11 @@ public class UpstoxAuthService {
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .map(resp -> {
+                    @SuppressWarnings("unchecked")
                     Map<String, Object> data = (Map<String, Object>) resp.get("data");
-                    return (Map<String, Object>) data.get(exchange + ":" + symbol);
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> quote = (Map<String, Object>) data.get(exchange + ":" + symbol);
+                    return quote;
                 });
     }
 
