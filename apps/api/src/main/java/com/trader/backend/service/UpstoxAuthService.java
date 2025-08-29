@@ -291,6 +291,23 @@ public class UpstoxAuthService {
                 });
     }
 
+    /** Fetch the user's available cash balance from Upstox. */
+    public Mono<Double> fetchBalance() {
+        String token = accessToken.get();
+        if (token == null) {
+            log.warn("Access-token not ready. Hit /auth/exchange first.");
+            return Mono.just(0.0);
+        }
+
+        return webClient.get()
+                .uri("/user/funds")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .map(j -> j.at("/data/equity/available_margin").asDouble(0.0));
+    }
+
     /** For webhook based auth flows (unused but kept for completeness). */
     public Mono<Void> handleWebhook(String rawJson) {
         String code;

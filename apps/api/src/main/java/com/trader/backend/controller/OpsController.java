@@ -3,21 +3,25 @@ package com.trader.backend.controller;
 import com.trader.backend.service.MarketHours;
 import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.InfluxTickService;
+import com.trader.backend.service.UpstoxAuthService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import reactor.core.publisher.Mono;
 
 @RestController
 public class OpsController {
     private final LiveFeedService liveFeedService;
     private final InfluxTickService influxTickService;
+    private final UpstoxAuthService upstoxAuthService;
 
-    public OpsController(LiveFeedService liveFeedService, InfluxTickService influxTickService) {
+    public OpsController(LiveFeedService liveFeedService, InfluxTickService influxTickService, UpstoxAuthService upstoxAuthService) {
         this.liveFeedService = liveFeedService;
         this.influxTickService = influxTickService;
+        this.upstoxAuthService = upstoxAuthService;
     }
 
     @GetMapping("/ops/market-clock")
@@ -70,5 +74,11 @@ public class OpsController {
         m.put("futLastTs", s.futLastTs() != null ? s.futLastTs().toString() : null);
         m.put("optLastTs", s.optLastTs() != null ? s.optLastTs().toString() : null);
         return m;
+    }
+
+    @GetMapping("/ops/upstox-balance")
+    public Mono<Map<String, Object>> upstoxBalance() {
+        return upstoxAuthService.fetchBalance()
+                .map(bal -> Map.of("balance", bal));
     }
 }
