@@ -276,11 +276,6 @@ public class NseInstrumentService {
         return new OptionBatch(chosenEpochMs, ce, pe);
     }
 
-    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Kolkata")
-    public void morningRefresh() {
-        loadCurrentWeekOptionInstruments();
-    }
-
     @Scheduled(cron = "0 35 15 * * MON-FRI", zone = "Asia/Kolkata")
     public void postCloseRefresh() {
         loadCurrentWeekOptionInstruments();
