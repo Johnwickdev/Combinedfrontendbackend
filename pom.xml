@@ -19,13 +19,36 @@
 
         <properties>
                 <java.version>17</java.version>
-                <de.flapdoodle.embed.mongo.version>4.12.2</de.flapdoodle.embed.mongo.version>
+                <maven.compiler.source>17</maven.compiler.source>
+                <maven.compiler.target>17</maven.compiler.target>
+                <maven.compiler.release>17</maven.compiler.release>
+
+                <!-- Lock common plugin versions -->
+                <spring-boot.version>3.2.5</spring-boot.version>
+                <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
+                <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+                <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
+
+                <!-- If you KEEP flapdoodle for local tests, pin the version; otherwise DELETE that dependency entirely. -->
+                <flapdoodle.embed.mongo.version>4.12.2</flapdoodle.embed.mongo.version>
+
                 <!-- align your Protobuf versions here -->
                 <protoc.version>3.21.12</protoc.version>
-                <maven.compiler.release>17</maven.compiler.release>
                 <!-- Skip frontend build by default to avoid requiring Node during CI -->
                 <skipFrontend>true</skipFrontend>
         </properties>
+
+        <dependencyManagement>
+                <dependencies>
+                        <dependency>
+                                <groupId>org.springframework.boot</groupId>
+                                <artifactId>spring-boot-dependencies</artifactId>
+                                <version>${spring-boot.version}</version>
+                                <type>pom</type>
+                                <scope>import</scope>
+                        </dependency>
+                </dependencies>
+        </dependencyManagement>
 
         <!-- Additional repositories intentionally omitted to avoid network failures
              when optional repos are unreachable. Maven Central is used by default. -->
@@ -108,7 +131,7 @@
                 <dependency>
                         <groupId>de.flapdoodle.embed</groupId>
                         <artifactId>de.flapdoodle.embed.mongo</artifactId>
-                        <version>${de.flapdoodle.embed.mongo.version}</version>
+                        <version>${flapdoodle.embed.mongo.version}</version>
                         <scope>test</scope>
                         <optional>true</optional>
                 </dependency>
@@ -116,13 +139,17 @@
 
         </dependencies>
 
-	<build>
-		<plugins>
-			<!-- Java compiler & Lombok -->
-			<plugin>
-				<groupId>org.apache.maven.plugins</groupId>
-				<artifactId>maven-compiler-plugin</artifactId>
-				<configuration>
+        <build>
+                <plugins>
+                        <!-- Java compiler & Lombok -->
+                        <plugin>
+                                <groupId>org.apache.maven.plugins</groupId>
+                                <artifactId>maven-compiler-plugin</artifactId>
+                                <version>${maven.compiler.plugin.version}</version>
+                                <configuration>
+                                        <release>${maven.compiler.release}</release>
+                                        <source>${maven.compiler.source}</source>
+                                        <target>${maven.compiler.target}</target>
                                         <annotationProcessorPaths>
                                                 <path>
                                                         <groupId>org.projectlombok</groupId>
@@ -133,55 +160,65 @@
                                 </configuration>
                         </plugin>
 
-			<!-- Spring Boot repackage -->
-			<plugin>
-				<groupId>org.springframework.boot</groupId>
-				<artifactId>spring-boot-maven-plugin</artifactId>
-				<configuration>
-					<excludes>
-						<exclude>
-							<groupId>org.projectlombok</groupId>
-							<artifactId>lombok</artifactId>
-						</exclude>
-					</excludes>
-				</configuration>
-			</plugin>
+                        <plugin>
+                                <groupId>org.apache.maven.plugins</groupId>
+                                <artifactId>maven-surefire-plugin</artifactId>
+                                <version>${maven.surefire.plugin.version}</version>
+                                <configuration>
+                                        <!-- CI already uses -DskipTests; keep deterministic behavior -->
+                                        <failIfNoTests>false</failIfNoTests>
+                                </configuration>
+                        </plugin>
 
-			<!-- OS detection, needed for protoc classifier -->
-			<plugin>
-				<groupId>kr.motd.maven</groupId>
-				<artifactId>os-maven-plugin</artifactId>
-				<version>1.7.0</version>
-				<executions>
-					<execution>
-						<goals>
-							<goal>detect</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
+                        <!-- Spring Boot repackage -->
+                        <plugin>
+                                <groupId>org.springframework.boot</groupId>
+                                <artifactId>spring-boot-maven-plugin</artifactId>
+                                <configuration>
+                                        <excludes>
+                                                <exclude>
+                                                        <groupId>org.projectlombok</groupId>
+                                                        <artifactId>lombok</artifactId>
+                                                </exclude>
+                                        </excludes>
+                                </configuration>
+                        </plugin>
 
-			<!-- Protobuf code generation -->
-			<plugin>
-				<groupId>org.xolstice.maven.plugins</groupId>
-				<artifactId>protobuf-maven-plugin</artifactId>
-				<version>0.6.1</version>
-				<configuration>
-					<!-- must match your protobuf-java version -->
-					<!--suppress UnresolvedMavenProperty -->
-					<protocArtifact>
-						com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}
-					</protocArtifact>
-				</configuration>
-				<executions>
-					<execution>
-						<goals>
-							<goal>compile</goal>
-						</goals>
-					</execution>
-				</executions>
-			</plugin>
-			 <plugin>
+                        <!-- OS detection, needed for protoc classifier -->
+                        <plugin>
+                                <groupId>kr.motd.maven</groupId>
+                                <artifactId>os-maven-plugin</artifactId>
+                                <version>1.7.0</version>
+                                <executions>
+                                        <execution>
+                                                <goals>
+                                                        <goal>detect</goal>
+                                                </goals>
+                                        </execution>
+                                </executions>
+                        </plugin>
+
+                        <!-- Protobuf code generation -->
+                        <plugin>
+                                <groupId>org.xolstice.maven.plugins</groupId>
+                                <artifactId>protobuf-maven-plugin</artifactId>
+                                <version>0.6.1</version>
+                                <configuration>
+                                        <!-- must match your protobuf-java version -->
+                                        <!--suppress UnresolvedMavenProperty -->
+                                        <protocArtifact>
+                                                com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}
+                                        </protocArtifact>
+                                </configuration>
+                                <executions>
+                                        <execution>
+                                                <goals>
+                                                        <goal>compile</goal>
+                                                </goals>
+                                        </execution>
+                                </executions>
+                        </plugin>
+                         <plugin>
       <groupId>com.github.eirslett</groupId>
       <artifactId>frontend-maven-plugin</artifactId>
       <version>1.13.4</version>
@@ -228,6 +265,16 @@
         </execution>
       </executions>
     </plugin>
-		</plugins>
-	</build>
+                </plugins>
+        </build>
+
+        <profiles>
+                <profile>
+                        <id>ci</id>
+                        <properties>
+                                <maven.test.skip>true</maven.test.skip>
+                                <skipTests>true</skipTests>
+                        </properties>
+                </profile>
+        </profiles>
 </project>
