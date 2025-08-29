@@ -9,6 +9,8 @@ import com.trader.backend.events.LtpEvent;
 import com.trader.backend.service.Tick;
 import com.trader.backend.service.LtpService;
 import com.trader.backend.service.TradeHistoryService;
+import com.trader.backend.service.ExpirySelectorService;
+import com.trader.backend.service.MarketHours;
 import com.trader.backend.dto.TradeRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
+import java.time.ZonedDateTime;
 
 import org.springframework.beans.factory.annotation.Value;
 
@@ -48,6 +51,7 @@ public class MdController {
     private final CandleService candleService;
     private final LiveFeedService liveFeedService;
     private final NseInstrumentService nseInstrumentService;
+    private final ExpirySelectorService expirySelectorService;
     private final SelectionService selectionService;
     private final TradeHistoryService tradeHistoryService;
     private final LtpService ltpService;
@@ -183,7 +187,8 @@ public class MdController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "side");
         }
         if (!"BOTH".equals(s)) {
-            nseInstrumentService.refreshIfOptionsEmpty();
+            ZonedDateTime nowIst = ZonedDateTime.now(MarketHours.zone());
+            nseInstrumentService.ensureOptionsLoaded(nowIst);
         }
         Optional<TradeHistoryService.Result> resOpt = tradeHistoryService.fetchRecentOptionTrades(lim, s);
         List<TradeRow> rows = resOpt.map(TradeHistoryService.Result::rows).orElse(List.of());
@@ -199,11 +204,13 @@ public class MdController {
         if (!adminKey.equals(key)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
         }
+        ZonedDateTime nowIst = ZonedDateTime.now(MarketHours.zone());
         NseInstrumentService.RefreshStats st = nseInstrumentService.refreshFromNseJson();
+        var expiry = expirySelectorService.selectCurrentOptionExpiry(nowIst);
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("downloaded", st.downloaded());
-        body.put("ce", st.ceSaved());
-        body.put("pe", st.peSaved());
+        body.put("currentExpiry", expiry.toString());
+        body.put("savedCE", st.ceSaved());
+        body.put("savedPE", st.peSaved());
         return ResponseEntity.ok(body);
     }
 }

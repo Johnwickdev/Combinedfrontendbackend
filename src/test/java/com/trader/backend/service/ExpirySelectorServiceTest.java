@@ -19,33 +19,33 @@ class ExpirySelectorServiceTest {
 
     @Test
     void mondayUsesThisThursday() {
-        Instant monday = LocalDate.of(2024, 1, 1).atTime(10, 0).atZone(IST).toInstant();
-        assertEquals(LocalDate.of(2024, 1, 4), service.pickCurrentExpiry(monday));
+        ZonedDateTime monday = LocalDate.of(2024, 1, 1).atTime(10, 0).atZone(IST);
+        assertEquals(LocalDate.of(2024, 1, 4), service.selectCurrentOptionExpiry(monday));
     }
 
     @Test
     void thursdayBeforeCloseUsesToday() {
-        Instant thursday = LocalDate.of(2024, 1, 4).atTime(10, 0).atZone(IST).toInstant();
-        assertEquals(LocalDate.of(2024, 1, 4), service.pickCurrentExpiry(thursday));
+        ZonedDateTime thursday = LocalDate.of(2024, 1, 4).atTime(10, 0).atZone(IST);
+        assertEquals(LocalDate.of(2024, 1, 4), service.selectCurrentOptionExpiry(thursday));
     }
 
     @Test
     void thursdayAfterCloseRollsOver() {
-        Instant thursday = LocalDate.of(2024, 1, 4).atTime(16, 0).atZone(IST).toInstant();
-        assertEquals(LocalDate.of(2024, 1, 11), service.pickCurrentExpiry(thursday));
+        ZonedDateTime thursday = LocalDate.of(2024, 1, 4).atTime(16, 0).atZone(IST);
+        assertEquals(LocalDate.of(2024, 1, 11), service.selectCurrentOptionExpiry(thursday));
     }
 
     @Test
     void fridayUsesNextThursday() {
-        Instant friday = LocalDate.of(2024, 1, 5).atTime(10, 0).atZone(IST).toInstant();
-        assertEquals(LocalDate.of(2024, 1, 11), service.pickCurrentExpiry(friday));
+        ZonedDateTime friday = LocalDate.of(2024, 1, 5).atTime(10, 0).atZone(IST);
+        assertEquals(LocalDate.of(2024, 1, 11), service.selectCurrentOptionExpiry(friday));
     }
 
     @Test
     void monthlyRolloverHandled() {
         // 25 April 2024 is the last Thursday of the month
-        Instant afterMonthly = LocalDate.of(2024, 4, 26).atTime(10, 0).atZone(IST).toInstant();
-        assertEquals(LocalDate.of(2024, 5, 2), service.pickCurrentExpiry(afterMonthly));
+        ZonedDateTime afterMonthly = LocalDate.of(2024, 4, 26).atTime(10, 0).atZone(IST);
+        assertEquals(LocalDate.of(2024, 5, 2), service.selectCurrentOptionExpiry(afterMonthly));
     }
 }
 
