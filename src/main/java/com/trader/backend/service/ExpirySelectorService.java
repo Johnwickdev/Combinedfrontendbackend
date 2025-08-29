@@ -35,6 +35,11 @@ public class ExpirySelectorService {
         return currentExpiry;
     }
 
+    /** Public entry for option expiry selection with explicit IST instant. */
+    public LocalDate selectCurrentOptionExpiry(Instant now) {
+        return pickCurrentExpiry(now);
+    }
+
     private LocalDate computeExpiry(ZonedDateTime z) {
         DayOfWeek dow = z.getDayOfWeek();
         LocalDate date = z.toLocalDate();

@@ -146,7 +146,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     public void subscribeToAuthEvents() {
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
-                .subscribe(ev -> connectIfOpenOrSchedule());
+                .subscribe(ev -> {
+                    nseInstrumentService.refreshIfOptionsEmpty();
+                    connectIfOpenOrSchedule();
+                });
 
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
@@ -229,7 +232,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
             if (instrumentsInitialized.compareAndSet(false, true)) {
                 nseInstrumentService.ensureNseJsonLoaded();
                 nseInstrumentService.purgeExpiredOptionDocs();
-                nseInstrumentService.refreshNiftyOptionsByNearestExpiryFromJson();
+                nseInstrumentService.refreshIfOptionsEmpty();
                 nseInstrumentService.saveNiftyFuturesToMongo();
             } else {
                 log.info("init sequence skipped: already initialized");
