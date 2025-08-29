@@ -17,19 +17,31 @@ public class LtpService {
 
     public Result resolve(String instrumentKey) {
         Instant now = Instant.now();
-        Optional<Tick> live = liveFeedService.getLatestTick(instrumentKey)
-                .filter(t -> Duration.between(t.ts(), now).toMillis() <= 5000);
-        if (live.isPresent()) {
-            Tick t = live.get();
+        Optional<Tick> liveOpt = liveFeedService.getLatestTick(instrumentKey);
+
+        // if we have a very recent tick, treat it as live
+        if (liveOpt.isPresent() &&
+                Duration.between(liveOpt.get().ts(), now).toMillis() <= 5000) {
+            Tick t = liveOpt.get();
             liveFeedService.logResolvedLtp(instrumentKey, t.ltp(), "live");
             return new Result(t.ltp(), t.ts(), "live");
         }
+
+        // otherwise, try the persisted store
         Optional<Tick> stored = influxTickService.latestTick(instrumentKey);
         if (stored.isPresent()) {
             Tick t = stored.get();
             liveFeedService.logResolvedLtp(instrumentKey, t.ltp(), "stored");
             return new Result(t.ltp(), t.ts(), "influx");
         }
+
+        // fall back to the last cached tick even if it is stale
+        if (liveOpt.isPresent()) {
+            Tick t = liveOpt.get();
+            liveFeedService.logResolvedLtp(instrumentKey, t.ltp(), "stale");
+            return new Result(t.ltp(), t.ts(), "influx");
+        }
+
         return new Result(null, null, "none");
     }
 }
