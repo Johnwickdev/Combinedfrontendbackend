@@ -1,0 +1,45 @@
+<div class="panel sector-panel">
+  <div class="header">
+    <h3>Sector CE/PE</h3>
+    <div class="pill-group">
+      <button [class.active]="selectedSide==='both'" (click)="onSideChange('both')">All</button>
+      <button [class.active]="selectedSide==='CE'" (click)="onSideChange('CE')">CE</button>
+      <button [class.active]="selectedSide==='PE'" (click)="onSideChange('PE')">PE</button>
+    </div>
+  </div>
+  <div class="loading" *ngIf="loading">Loading…</div>
+  <table class="mini-table" *ngIf="rows.length; else emptyTpl">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Side</th>
+        <th class="num">Strike</th>
+        <th class="num">LTP</th>
+        <th>Change</th>
+        <th class="num">Qty</th>
+        <th class="num">OI</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let r of rows; trackBy: trackTx">
+        <td>{{ r.ts | date:'HH:mm:ss' }}</td>
+        <td><span class="side" [class.ce]="r.optionType==='CE'" [class.pe]="r.optionType==='PE'">{{ r.optionType }}</span></td>
+        <td class="num">{{ r.strike }}</td>
+        <td class="num">{{ r.ltp | number:'1.2-2' }}</td>
+        <td>
+          <ng-container *ngIf="r.changePct !== null; else dash">
+            <span [class.up]="r.changePct>0" [class.down]="r.changePct<0">
+              {{ r.changePct>0 ? '+' : ''}}{{ (r.changePct*100) | number:'1.2-2' }}%
+            </span>
+          </ng-container>
+          <ng-template #dash>—</ng-template>
+        </td>
+        <td class="num">{{ r.qty === null ? '—' : r.qty }}</td>
+        <td class="num">{{ r.oi === null ? '—' : r.oi }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <ng-template #emptyTpl>
+    <div class="empty">No trades yet</div>
+  </ng-template>
+</div>

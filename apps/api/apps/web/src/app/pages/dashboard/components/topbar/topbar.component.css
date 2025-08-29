@@ -1,0 +1,53 @@
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.brand {
+  font-weight: 600;
+}
+
+.search {
+  flex: 1;
+}
+
+.search input {
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.switch {
+  display: flex;
+  gap: 4px;
+  background: var(--panel);
+  padding: 4px;
+}
+
+.switch button {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.switch button.active {
+  background: var(--accent);
+}
+
+.avatar {
+  cursor: pointer;
+}

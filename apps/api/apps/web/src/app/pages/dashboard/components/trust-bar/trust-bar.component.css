@@ -1,0 +1,28 @@
+.trust {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.label {
+  font-size: 14px;
+}
+
+.bar {
+  height: 12px;
+  background: var(--panel-soft);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--accent-2);
+}
+
+.percent {
+  align-self: flex-end;
+  font-size: 14px;
+}

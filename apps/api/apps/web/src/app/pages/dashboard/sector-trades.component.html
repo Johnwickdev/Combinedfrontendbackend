@@ -1,0 +1,48 @@
+<div class="panel sector-trades">
+  <div class="header">
+    <h3>Sector CE/PE <span *ngIf="source" class="src-badge" [ngClass]="{'src-live': source==='live', 'src-hist': source!=='live'}">{{ source==='live' ? 'LIVE' : 'HISTORY' }}</span></h3>
+    <div class="pill-group">
+      <div class="seg-pill" [class.active]="side==='both'" (click)="setSide('both')">All</div>
+      <div class="seg-pill" [class.active]="side==='CE'" (click)="setSide('CE')">CE</div>
+      <div class="seg-pill" [class.active]="side==='PE'" (click)="setSide('PE')">PE</div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <div *ngIf="loading" class="loading">Loading…</div>
+    <div *ngIf="error" class="error">{{ error }}</div>
+    <table *ngIf="!loading && !error && rows.length" class="mini-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Side</th>
+          <th class="num">Strike</th>
+          <th class="num">LTP</th>
+          <th>Change</th>
+          <th class="num">Qty</th>
+          <th class="num">OI</th>
+          <th class="num">IV</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let r of rows; trackBy: trackByTs">
+          <td>{{ r.ts | date:'HH:mm:ss' }}</td>
+          <td><span class="side-chip" [class.ce]="r.optionType==='CE'" [class.pe]="r.optionType==='PE'">{{ r.optionType }}</span></td>
+          <td class="num">{{ r.strike }}</td>
+          <td class="num">{{ r.ltp | number:'1.2-2' }}</td>
+          <td>
+            <ng-container *ngIf="r.changePct != null; else dash">
+              <span [class.up]="r.changePct > 0" [class.down]="r.changePct < 0">{{ r.changePct > 0 ? '+' : ''}}{{ (r.changePct * 100) | number:'1.2-2' }}%</span>
+            </ng-container>
+            <ng-template #dash>—</ng-template>
+          </td>
+          <td class="num">{{ r.qty == null ? '—' : r.qty }}</td>
+          <td class="num">{{ r.oi == null ? '—' : r.oi }}</td>
+          <td class="num">{{ r.iv == null ? '—' : (r.iv | number:'1.2-2') }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div *ngIf="!loading && !error && !rows.length" class="empty">No trades yet</div>
+  </div>
+</div>
+

@@ -1,0 +1,43 @@
+<app-side-rail></app-side-rail>
+<div class="dashboard">
+  <div class="shell">
+    <app-topbar></app-topbar>
+    <div class="auth-pill" *ngIf="connected; else loginTpl">
+      <span class="tick">✅</span>
+      <span>Token: Connected — expires in {{ formatRemaining() }}</span>
+      <span class="refresh" (click)="refresh()">🔄</span>
+    </div>
+    <ng-template #loginTpl>
+      <button class="login-btn" (click)="login()">Login with Upstox</button>
+    </ng-template>
+    <div class="main">
+      <div class="left-col">
+        <app-asset-header></app-asset-header>
+
+        <div class="panel price-panel">
+          <div class="price-value">
+            {{ nowLtp === null ? '—' : (nowLtp | number:'1.2-2') }}
+          </div>
+          <small *ngIf="ltpSource==='live'"><span class="dot dot-live"></span>Live</small>
+          <small *ngIf="ltpSource==='influx'"><span class="dot dot-influx"></span>Last saved</small>
+          <span class="chip-live" *ngIf="marketOpen === false">Market Closed</span>
+          <div class="muted">24h <span class="rise">+0.68%</span></div>
+        </div>
+
+        <div class="metrics">
+          <app-metric-card *ngFor="let m of metrics" [title]="m.title" [value]="m.value"></app-metric-card>
+        </div>
+
+        <div class="bottom">
+          <app-donut-score [value]="97"></app-donut-score>
+          <app-trust-bar [value]="88"></app-trust-bar>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <app-candle-panel></app-candle-panel>
+        <app-sector-trades></app-sector-trades>
+      </div>
+    </div>
+  </div>
+</div>

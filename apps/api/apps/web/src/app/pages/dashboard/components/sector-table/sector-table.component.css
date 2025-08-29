@@ -1,0 +1,29 @@
+.sector-panel {
+  padding: 1rem;
+}
+
+.sector-panel .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.pill-group { display:flex; gap:.5rem; }
+.pill-group button { padding:.25rem .6rem; border-radius:999px; background:#222a; color:#ddd; border:1px solid #444; }
+.pill-group button.active { background:#6d4cff; color:white; border-color:#6d4cff; }
+
+.mini-table { width:100%; border-collapse:collapse; }
+.mini-table th, .mini-table td { padding:.5rem .75rem; border-bottom:1px solid rgba(255,255,255,.06); }
+.mini-table .tx { opacity:.6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.up { color:#36d399; }
+.down { color:#f87272; }
+
+.empty, .loading { opacity:.7; padding:1rem; }
+
+.side { padding:0 .25rem; border-radius:4px; font-size:12px; }
+.side.ce { background:#6d4cff; color:#fff; }
+.side.pe { background:#444; color:#ddd; }
+
+.num { text-align:right; }
