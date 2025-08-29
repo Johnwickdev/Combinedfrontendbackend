@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -77,6 +79,18 @@ public class TradeHistoryService {
         if (rows.isEmpty()) {
             rows = fetchFromInflux(symbols, limit);
             src = "influx";
+        } else if (rows.size() < limit) {
+            List<TradeRow> hist = fetchFromInflux(symbols, limit);
+            Set<String> seen = rows.stream().map(TradeRow::txId).collect(Collectors.toSet());
+            for (TradeRow r : hist) {
+                if (seen.add(r.txId())) {
+                    rows.add(r);
+                }
+                if (rows.size() >= limit) {
+                    break;
+                }
+            }
+            rows.sort(Comparator.comparing(TradeRow::ts).reversed());
         }
         return Optional.of(new Result(rows, src));
     }
