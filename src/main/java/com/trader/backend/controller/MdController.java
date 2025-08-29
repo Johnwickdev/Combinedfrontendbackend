@@ -17,6 +17,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,6 +38,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Value;
+
 @RestController
 @RequestMapping("/md")
 @RequiredArgsConstructor
@@ -47,6 +51,8 @@ public class MdController {
     private final SelectionService selectionService;
     private final TradeHistoryService tradeHistoryService;
     private final LtpService ltpService;
+    @Value("${admin.key:changeme}")
+    private String adminKey;
 
     @GetMapping("/candles")
     public Mono<List<CandleResponse>> candles(@RequestParam("instrumentKey") List<String> instrumentKeys,
@@ -176,6 +182,9 @@ public class MdController {
         if (!Set.of("CE", "PE", "BOTH").contains(s)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "side");
         }
+        if (!"BOTH".equals(s)) {
+            nseInstrumentService.refreshIfOptionsEmpty();
+        }
         Optional<TradeHistoryService.Result> resOpt = tradeHistoryService.fetchRecentOptionTrades(lim, s);
         List<TradeRow> rows = resOpt.map(TradeHistoryService.Result::rows).orElse(List.of());
         String src = resOpt.map(TradeHistoryService.Result::source).orElse("none");
@@ -183,5 +192,18 @@ public class MdController {
         return ResponseEntity.ok()
                 .header("X-Source", src)
                 .body(rows);
+    }
+
+    @PostMapping("/admin/options/refresh")
+    public ResponseEntity<Map<String, Object>> refreshOptions(@RequestHeader("X-Admin-Key") String key) {
+        if (!adminKey.equals(key)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "forbidden");
+        }
+        NseInstrumentService.RefreshStats st = nseInstrumentService.refreshFromNseJson();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("downloaded", st.downloaded());
+        body.put("ce", st.ceSaved());
+        body.put("pe", st.peSaved());
+        return ResponseEntity.ok(body);
     }
 }
