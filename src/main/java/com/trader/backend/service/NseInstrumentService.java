@@ -729,8 +729,8 @@ public Optional<String> nearestNiftyFutureKey() {
         log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
         try {
             ensureNseJsonLoaded(false);
-
-            LocalDate expiry = expirySelectorService.pickCurrentExpiry(Instant.now());
+            ZonedDateTime nowIst = ZonedDateTime.now(IST);
+            LocalDate expiry = expirySelectorService.pickCurrentExpiry(nowIst);
             long start = istStartOfDayMs(expiry);
             long end = istEndOfDayMs(expiry);
 

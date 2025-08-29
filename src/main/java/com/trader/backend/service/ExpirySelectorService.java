@@ -63,5 +63,13 @@ public class ExpirySelectorService {
         }
         return next;
     }
+
+    public LocalDate pickCurrentExpiry(ZonedDateTime nowIst) {
+        return selectCurrentOptionExpiry(nowIst);
+    }
+
+    public LocalDate pickCurrentExpiry(Instant nowUtc) {
+        return pickCurrentExpiry(ZonedDateTime.ofInstant(nowUtc, IST));
+    }
 }
 
