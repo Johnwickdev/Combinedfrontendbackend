@@ -150,8 +150,11 @@
                                <artifactId>maven-surefire-plugin</artifactId>
                                <version>${maven.surefire.plugin.version}</version>
                                <configuration>
-                                       <!-- CI already uses -DskipTests; keep deterministic behavior -->
                                        <failIfNoTests>false</failIfNoTests>
+                                       <!-- If you have specific failing tests, exclude them here to keep local builds green: -->
+                                       <!-- <excludes>
+                                         <exclude>**/NseInstrumentServiceTest.java</exclude>
+                                       </excludes> -->
                                </configuration>
                        </plugin>
 
@@ -266,7 +269,8 @@
                 <profile>
                         <id>ci</id>
                         <properties>
-                                <maven.test.skip>true</maven.test.skip>
+                                <maven.test.skip>true</maven.test.skip>   <!-- prevents test compile & run -->
+                                <skipTests>true</skipTests>               <!-- redundant but harmless -->
                         </properties>
                 </profile>
         </profiles>
