@@ -1,6 +1,7 @@
 package com.trader.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trader.backend.entity.NseInstrument;
 import com.trader.backend.repository.NseInstrumentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.data.mongo.DataMongoTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DataMongoTest
@@ -31,5 +33,12 @@ public class NseInstrumentServiceIntegrationTest {
     void loadsAndPersistsCurrentWeekOptions() {
         NseInstrumentService.OptionBatch batch = service.loadCurrentWeekOptionInstruments();
         assertTrue(repo.countByExpiry(batch.expiry()) > 0);
+    }
+
+    @Test
+    void entityUsesCamelCaseAccessors() {
+        NseInstrument n = new NseInstrument();
+        n.setInstrumentKey("TEST");
+        assertEquals("TEST", n.getInstrumentKey());
     }
 }
