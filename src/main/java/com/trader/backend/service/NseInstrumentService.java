@@ -94,9 +94,12 @@ public class NseInstrumentService {
         if (!force && !nseCache.isEmpty() && (now - nseCacheLoadedAt) < CACHE_TTL_MS) {
             return;
         }
-        try {
-            File jsonFile = new File("src/main/resources/data/NSE.json");
-            nseCache = Arrays.asList(mapper.readValue(jsonFile, NseInstrument[].class));
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("data/NSE.json")) {
+            if (is == null) {
+                log.error("Failed to load NSE.json: resource not found");
+                return;
+            }
+            nseCache = Arrays.asList(mapper.readValue(is, NseInstrument[].class));
             nseCacheLoadedAt = now;
             log.debug("NSE.json parsed ({} records)", nseCache.size());
         } catch (IOException e) {
