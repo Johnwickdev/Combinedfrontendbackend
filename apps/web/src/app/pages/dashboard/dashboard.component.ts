@@ -11,6 +11,7 @@ import { SectorTradesComponent } from './sector-trades.component';
 import { AuthService } from '../../services/auth.service';
 import { formatCountdown } from '../../utils/time';
 import { MarketDataService } from '../../services/market-data.service';
+import { AccountService } from '../../services/account.service';
 import { Subscription } from 'rxjs';
 
 @Component({
@@ -32,7 +33,7 @@ import { Subscription } from 'rxjs';
 })
 export class DashboardComponent implements OnInit, OnDestroy {
   metrics = [
-    { title: 'Total Liquidity', value: '₹ 2,803,805.50' },
+    { title: 'Total Liquidity', value: '₹ 0.00' },
     { title: 'Daily Volume', value: '₹ 2,372,139.74' },
     { title: "Open Interest ('000)", value: '120.6' },
     { title: "Lots Traded ('000)", value: '271.35' }
@@ -52,7 +53,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   private tickSub?: Subscription;
 
-  constructor(private auth: AuthService, private marketData: MarketDataService) {}
+  constructor(private auth: AuthService, private marketData: MarketDataService, private account: AccountService) {}
 
   ngOnInit() {
     this.checkStatus();
@@ -96,6 +97,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.connected = s.connected;
         this.expiresAt = s.expiresAt;
         this.remaining = s.remainingSeconds;
+        if (this.connected) {
+          this.account.getBalance().subscribe(b => {
+            this.metrics[0].value = '₹ ' + b.toFixed(2);
+          });
+        }
       }
     });
   }

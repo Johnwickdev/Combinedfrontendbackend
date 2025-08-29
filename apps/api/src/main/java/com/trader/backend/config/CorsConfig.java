@@ -38,7 +38,8 @@ public class CorsConfig {
                 "/md/sector-trades",
                 "/ops/live-status",
                 "/ops/influx-sanity",
-                "/ops/market-clock"
+                "/ops/market-clock",
+                "/ops/upstox-balance"
         );
         paths.forEach(p -> source.registerCorsConfiguration(p, config));
 
