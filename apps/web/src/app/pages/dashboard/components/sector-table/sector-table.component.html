@@ -18,10 +18,11 @@
         <th>Change</th>
         <th class="num">Qty</th>
         <th class="num">OI</th>
+        <th class="num">IV</th>
       </tr>
     </thead>
     <tbody>
-      <tr *ngFor="let r of rows; trackBy: trackTx">
+      <tr *ngFor="let r of rows; trackBy: trackRow">
         <td>{{ r.ts | date:'HH:mm:ss' }}</td>
         <td><span class="side" [class.ce]="r.optionType==='CE'" [class.pe]="r.optionType==='PE'">{{ r.optionType }}</span></td>
         <td class="num">{{ r.strike }}</td>
@@ -36,6 +37,7 @@
         </td>
         <td class="num">{{ r.qty === null ? '—' : r.qty }}</td>
         <td class="num">{{ r.oi === null ? '—' : r.oi }}</td>
+        <td class="num">{{ r.iv == null ? '—' : (r.iv | number:'1.2-2') }}</td>
       </tr>
     </tbody>
   </table>
