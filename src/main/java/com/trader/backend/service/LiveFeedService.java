@@ -94,6 +94,9 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
     private final ConcurrentHashMap<String, Tick> lastTick = new ConcurrentHashMap<>();
     private final AtomicBoolean instrumentsInitialized = new AtomicBoolean(false);
+    private final AtomicInteger ceLoadedCount = new AtomicInteger(0);
+    private final AtomicInteger peLoadedCount = new AtomicInteger(0);
+    private final AtomicLong currentExpiryMs = new AtomicLong(0);
 
     public Optional<Tick> getLatestTick(String key) {
         return Optional.ofNullable(lastTick.get(key));
@@ -148,6 +151,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                 .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
                 .subscribe(ev -> {
                     nseInstrumentService.refreshIfOptionsEmpty();
+                    ensureOptionStream();
                     connectIfOpenOrSchedule();
                 });
 
@@ -172,8 +176,9 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     long opt = optWrites.getAndSet(0);
                     ticksLast60s.set(fut + opt);
                     String source = connected.get() ? "live" : "influx";
-                    log.info("HEARTBEAT market={} liveFut={} liveOpts={} writesFut={}/15s writesOpt={}/15s sourceUsed={}",
-                            open ? "open" : "closed", futOn ? "on" : "off", optCount, fut, opt, source);
+                    log.info("HEARTBEAT market={} liveFut={} liveOpts={} writesFut={}/15s writesOpt={}/15s sourceUsed={} ceLoadedCount={} peLoadedCount={}",
+                            open ? "open" : "closed", futOn ? "on" : "off", optCount, fut, opt, source,
+                            ceLoadedCount.get(), peLoadedCount.get());
                 });
     }
 
@@ -212,6 +217,19 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
     public void startLive() {
         initLiveWebSocket();
+    }
+
+    private void ensureOptionStream() {
+        NseInstrumentService.OptionBatch batch = nseInstrumentService.loadCurrentWeekOptionInstruments();
+        ceLoadedCount.set(batch.ce().size());
+        peLoadedCount.set(batch.pe().size());
+        currentExpiryMs.set(batch.expiry());
+        if (batch.ce().isEmpty() && batch.pe().isEmpty()) {
+            log.info("OPTION-STREAM wait: no instruments yet (will retry)");
+            Mono.delay(Duration.ofSeconds(30)).subscribe(i -> ensureOptionStream());
+            return;
+        }
+        streamFilteredNiftyOptions();
     }
 
     /**
@@ -511,10 +529,14 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     }
 public void streamFilteredNiftyOptions() {
     NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
+    ceLoadedCount.set(sel.ceCount());
+    peLoadedCount.set(sel.peCount());
+    currentExpiryMs.set(sel.expiry());
     List<String> desired = sel.keys();
     if (desired.isEmpty()) {
-        log.warn("⚠️ No CE/PE instruments found in DB; skipping option stream");
+        log.info("OPTION-STREAM wait: no instruments yet (will retry)");
         optionsStreamStarted.set(false);
+        Mono.delay(Duration.ofSeconds(30)).subscribe(i -> streamFilteredNiftyOptions());
         return;
     }
     Set<String> toAdd = new HashSet<>(desired);
@@ -535,6 +557,8 @@ public void streamFilteredNiftyOptions() {
     if (!optionsStreamStarted.compareAndSet(false, true)) {
         return;
     }
+
+    log.info("OPTION-STREAM started keys={} expiry={}", desired.size(), sel.expiry());
 
     auth.ensureValidToken()
         .flatMap(valid -> {
