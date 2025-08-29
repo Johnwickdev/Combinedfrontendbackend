@@ -7,11 +7,11 @@ COPY mvnw pom.xml ./
 RUN chmod +x mvnw
 
 # Pre-fetch deps (faster, fewer network surprises)
-RUN ./mvnw -q -B -e -DskipTests -DskipFrontend=true dependency:go-offline
+RUN ./mvnw -B -V -e -DskipFrontend=true -Dmaven.test.skip=true dependency:go-offline
 
 # Now copy sources and build
 COPY src ./src
-RUN ./mvnw -q -B -e clean package -DskipTests -DskipFrontend=true -Pci
+RUN ./mvnw -B -V -e -DskipFrontend=true -Dmaven.test.skip=true -Pci clean package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app

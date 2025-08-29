@@ -19,36 +19,18 @@
 
         <properties>
                 <java.version>17</java.version>
-                <maven.compiler.source>17</maven.compiler.source>
-                <maven.compiler.target>17</maven.compiler.target>
-                <maven.compiler.release>17</maven.compiler.release>
 
-                <!-- Lock common plugin versions -->
-                <spring-boot.version>3.2.5</spring-boot.version>
+                <!-- Pin all build-related versions -->
+                <flapdoodle.version>4.11.0</flapdoodle.version>
                 <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
                 <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
                 <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
-
-                <!-- If you KEEP flapdoodle for local tests, pin the version; otherwise DELETE that dependency entirely. -->
-                <flapdoodle.embed.mongo.version>4.12.2</flapdoodle.embed.mongo.version>
 
                 <!-- align your Protobuf versions here -->
                 <protoc.version>3.21.12</protoc.version>
                 <!-- Skip frontend build by default to avoid requiring Node during CI -->
                 <skipFrontend>true</skipFrontend>
         </properties>
-
-        <dependencyManagement>
-                <dependencies>
-                        <dependency>
-                                <groupId>org.springframework.boot</groupId>
-                                <artifactId>spring-boot-dependencies</artifactId>
-                                <version>${spring-boot.version}</version>
-                                <type>pom</type>
-                                <scope>import</scope>
-                        </dependency>
-                </dependencies>
-        </dependencyManagement>
 
         <!-- Additional repositories intentionally omitted to avoid network failures
              when optional repos are unreachable. Maven Central is used by default. -->
@@ -131,9 +113,8 @@
                 <dependency>
                         <groupId>de.flapdoodle.embed</groupId>
                         <artifactId>de.flapdoodle.embed.mongo</artifactId>
-                        <version>${flapdoodle.embed.mongo.version}</version>
+                        <version>${flapdoodle.version}</version>
                         <scope>test</scope>
-                        <optional>true</optional>
                 </dependency>
 
 
@@ -147,9 +128,9 @@
                                 <artifactId>maven-compiler-plugin</artifactId>
                                 <version>${maven.compiler.plugin.version}</version>
                                 <configuration>
-                                        <release>${maven.compiler.release}</release>
-                                        <source>${maven.compiler.source}</source>
-                                        <target>${maven.compiler.target}</target>
+                                        <source>${java.version}</source>
+                                        <target>${java.version}</target>
+                                        <parameters>true</parameters>
                                         <annotationProcessorPaths>
                                                 <path>
                                                         <groupId>org.projectlombok</groupId>
@@ -160,20 +141,27 @@
                                 </configuration>
                         </plugin>
 
+                       <plugin>
+                               <groupId>org.apache.maven.plugins</groupId>
+                               <artifactId>maven-surefire-plugin</artifactId>
+                               <version>${maven.surefire.plugin.version}</version>
+                               <configuration>
+                                       <!-- CI already uses -DskipTests; keep deterministic behavior -->
+                                       <failIfNoTests>false</failIfNoTests>
+                               </configuration>
+                       </plugin>
+
                         <plugin>
                                 <groupId>org.apache.maven.plugins</groupId>
-                                <artifactId>maven-surefire-plugin</artifactId>
-                                <version>${maven.surefire.plugin.version}</version>
-                                <configuration>
-                                        <!-- CI already uses -DskipTests; keep deterministic behavior -->
-                                        <failIfNoTests>false</failIfNoTests>
-                                </configuration>
+                                <artifactId>maven-failsafe-plugin</artifactId>
+                                <version>${maven.failsafe.plugin.version}</version>
                         </plugin>
 
                         <!-- Spring Boot repackage -->
                         <plugin>
                                 <groupId>org.springframework.boot</groupId>
                                 <artifactId>spring-boot-maven-plugin</artifactId>
+                                <version>3.2.5</version>
                                 <configuration>
                                         <excludes>
                                                 <exclude>
@@ -247,7 +235,9 @@
 
     <!-- copy dist/ to Spring Boot’s static/ -->
     <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
       <artifactId>maven-resources-plugin</artifactId>
+      <version>3.3.1</version>
       <executions>
         <execution>
           <id>copy-angular</id>
@@ -271,9 +261,14 @@
         <profiles>
                 <profile>
                         <id>ci</id>
+                        <activation>
+                                <property>
+                                        <name>env.CI</name>
+                                        <value>true</value>
+                                </property>
+                        </activation>
                         <properties>
                                 <maven.test.skip>true</maven.test.skip>
-                                <skipTests>true</skipTests>
                         </properties>
                 </profile>
         </profiles>
