@@ -1,0 +1,36 @@
+<div class="sidebar">
+  <h2>Auto Trader</h2>
+  <button (click)="goToLogin()">Login</button>
+  <button>Refresh Token</button>
+  <button>Settings</button>
+</div>
+
+<div class="content">
+  <div class="header">
+    <h1>Trading Dashboard</h1>
+    <div class="status">Token Expires in: {{ tokenExpiryTime }}</div>
+  </div>
+
+  <div class="chart">
+    <h3>Live Market Chart</h3>
+    <p>[Candlestick + Commentary Layer]</p>
+  </div>
+
+  <div class="options">
+    <div class="option-card">CE Option 1</div>
+    <div class="option-card">CE Option 2</div>
+    <div class="option-card">PE Option 1</div>
+    <div class="option-card">PE Option 2</div>
+    <div class="option-card">PE Option 3</div>
+    <div class="option-card">PE Option 4</div>
+  </div>
+
+  <div class="commentary">
+    <h3>Bot Commentary</h3>
+    <p>[Live interpretation of market dynamics and trade decisions]</p>
+  </div>
+
+  <div class="footer">
+    &copy; 2025 Auto Trading AI Dashboard
+  </div>
+</div>

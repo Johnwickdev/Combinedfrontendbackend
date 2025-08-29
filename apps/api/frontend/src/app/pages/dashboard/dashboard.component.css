@@ -1,0 +1,84 @@
+:host {
+  display: flex;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #0e1a1f;
+  color: #d8f0e3;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background-color: #13252f;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.4);
+}
+
+.sidebar h2 {
+  margin: 0 0 30px;
+  font-size: 20px;
+  color: #80ffd3;
+}
+
+.sidebar button {
+  background: #1f3b47;
+  border: none;
+  color: #80ffd3;
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.header .status {
+  color: #80ffd3;
+}
+
+.chart {
+  background-color: #1a2e36;
+  height: 300px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.option-card {
+  flex: 1 1 calc(50% - 10px);
+  background-color: #1a2e36;
+  padding: 15px;
+  border-radius: 10px;
+  color: #d8f0e3;
+}
+
+.commentary {
+  background-color: #1a2e36;
+  padding: 20px;
+  border-radius: 10px;
+}
+
+.footer {
+  text-align: center;
+  color: #4f6c74;
+  margin-top: 20px;
+}
