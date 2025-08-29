@@ -225,9 +225,22 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         peLoadedCount.set(batch.pe().size());
         currentExpiryMs.set(batch.expiry());
         if (batch.ce().isEmpty() && batch.pe().isEmpty()) {
-            log.info("OPTION-STREAM wait: no instruments yet (will retry)");
-            Mono.delay(Duration.ofSeconds(30)).subscribe(i -> ensureOptionStream());
-            return;
+            log.info("OPTION-STREAM wait: no instruments yet — attempting JSON fallback");
+            try {
+                Double ltp = nseInstrumentService.getNearestExpiryNiftyFutureLtp().block(Duration.ofSeconds(5));
+                if (ltp != null) {
+                    NseInstrumentService.OptionBatch fb = nseInstrumentService.filterStrikesAroundLtpFromJson(ltp);
+                    ceLoadedCount.set(fb.ce().size());
+                    peLoadedCount.set(fb.pe().size());
+                    currentExpiryMs.set(fb.expiry());
+                }
+            } catch (Exception ex) {
+                log.error("⚠️ Failed JSON fallback for options", ex);
+            }
+            if (ceLoadedCount.get() == 0 && peLoadedCount.get() == 0) {
+                Mono.delay(Duration.ofSeconds(30)).subscribe(i -> ensureOptionStream());
+                return;
+            }
         }
         streamFilteredNiftyOptions();
     }
@@ -726,7 +739,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         bufferOptionTick(instrumentKey, feed, ts, ltp);
 
                         if (selectionComputed.compareAndSet(false, true)) {
-                            nseInstrumentService.filterStrikesAroundLtp(ltp);
+                            nseInstrumentService.filterStrikesAroundLtpFromJson(ltp);
                             NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
                             String sig = nseInstrumentService.selectionSignature(sel);
                             if (sig.equals(lastSelectionSignature.get())) {

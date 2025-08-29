@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
@@ -453,6 +454,105 @@ public void filterStrikesAroundLtp(double niftyLtp) {
     // 🔔 Notify LiveFeedService via event (no circular dependency)
     publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, activeExpiry, selected.size()));
 }
+
+    /**
+     * Directly read NSE.json and select 10 CE + 10 PE around the given LTP for
+     * the current weekly expiry. Results are stored into
+     * filtered_nifty_premiums and also returned.
+     */
+    public OptionBatch filterStrikesAroundLtpFromJson(double niftyLtp) {
+        if (!strikesFiltered.compareAndSet(false, true)) {
+            // already filtered; return current selection from DB
+            List<NseInstrument> ceExisting = mongoTemplate.find(
+                    new Query(Criteria.where("instrument_type").is("CE")),
+                    NseInstrument.class,
+                    "filtered_nifty_premiums");
+            List<NseInstrument> peExisting = mongoTemplate.find(
+                    new Query(Criteria.where("instrument_type").is("PE")),
+                    NseInstrument.class,
+                    "filtered_nifty_premiums");
+            long exp = Stream.concat(ceExisting.stream(), peExisting.stream())
+                    .map(NseInstrument::getExpiry)
+                    .findFirst()
+                    .orElse(0L);
+            return new OptionBatch(exp, ceExisting, peExisting);
+        }
+
+        ensureNseJsonLoaded(false);
+        List<NseInstrument> all = new ArrayList<>(nseCache);
+        all.forEach(this::normalizeInstrument);
+
+        List<Long> expiries = all.stream()
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                .map(NseInstrument::getExpiry)
+                .distinct()
+                .sorted()
+                .toList();
+
+        Instant picked = expirySelectorService.pickCurrentWeeklyExpiry(Instant.now(), expiries, ZoneId.of("Asia/Kolkata"));
+        long chosenEpochMs = expiries.stream()
+                .filter(ms -> Instant.ofEpochMilli(ms).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate()
+                        .equals(picked.atZone(ZoneId.of("Asia/Kolkata")).toLocalDate()))
+                .findFirst()
+                .orElse(picked.toEpochMilli());
+
+        double base = Math.round(niftyLtp / 50.0) * 50;
+        Set<Integer> strikeSet = new LinkedHashSet<>();
+        for (int i = -30; i <= 30; i++) strikeSet.add((int) (base + i * 50));
+
+        List<NseInstrument> pool = all.stream()
+                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                .filter(i -> i.getExpiry() == chosenEpochMs)
+                .filter(i -> strikeSet.contains(i.getStrikePrice()))
+                .collect(Collectors.toList());
+
+        Comparator<NseInstrument> byDistance = Comparator
+                .comparingDouble((NseInstrument i) -> Math.abs(i.getStrikePrice() - base))
+                .thenComparingInt(NseInstrument::getStrikePrice);
+
+        List<NseInstrument> ceSorted = pool.stream()
+                .filter(i -> "CE".equals(i.getInstrumentType()))
+                .sorted(byDistance)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(NseInstrument::getStrikePrice, i -> i, (a, b) -> a, LinkedHashMap::new),
+                        m -> new ArrayList<>(m.values())));
+        List<NseInstrument> peSorted = pool.stream()
+                .filter(i -> "PE".equals(i.getInstrumentType()))
+                .sorted(byDistance)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(NseInstrument::getStrikePrice, i -> i, (a, b) -> a, LinkedHashMap::new),
+                        m -> new ArrayList<>(m.values())));
+
+        int CE_COUNT = 10, PE_COUNT = 10;
+        List<NseInstrument> ceSel = ceSorted.stream().limit(CE_COUNT).toList();
+        List<NseInstrument> peSel = peSorted.stream().limit(PE_COUNT).toList();
+        List<NseInstrument> selected = new ArrayList<>();
+        selected.addAll(ceSel);
+        selected.addAll(peSel);
+
+        if (selected.isEmpty()) {
+            log.warn("⚠️ No instruments selected for filtered_nifty_premiums from JSON (expiry={}).", chosenEpochMs);
+            return new OptionBatch(chosenEpochMs, List.of(), List.of());
+        }
+
+        mongoTemplate.dropCollection("filtered_nifty_premiums");
+        mongoTemplate.insert(selected, "filtered_nifty_premiums");
+        log.info("✅ Saved {} instruments ({} CE + {} PE) to filtered_nifty_premiums for expiry={} (via JSON)",
+                selected.size(), ceSel.size(), peSel.size(), chosenEpochMs);
+
+        publisher.publishEvent(new FilteredPremiumsUpdatedEvent(this, chosenEpochMs, selected.size()));
+        return new OptionBatch(chosenEpochMs, ceSel, peSel);
+    }
 
     public void saveAllNiftyOptionsFromJson() {
         log.info("📂 Reading NSE.json to save all NIFTY CE/PE options...");
