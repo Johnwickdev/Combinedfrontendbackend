@@ -8,6 +8,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
+import org.springframework.core.ParameterizedTypeReference;
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -44,7 +45,7 @@ public class UpstoxFeedTester {
                         .with("redirect_uri", REDIRECT_URI)
                         .with("grant_type", "authorization_code"))
                 .retrieve()
-                .bodyToMono(Map.class)
+                .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .block(Duration.ofSeconds(10));
 
         if (tok == null || tok.get("access_token") == null) {
