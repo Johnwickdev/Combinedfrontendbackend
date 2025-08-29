@@ -26,11 +26,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import com.trader.backend.entity.NseInstrument;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Criteria;
+import com.trader.backend.service.NSEDownloaderService;
+import com.trader.backend.service.ExpirySelectorService;
 
 import com.fasterxml.jackson.core.exc.StreamReadException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -74,6 +77,8 @@ public class NseInstrumentService {
     private final NseInstrumentRepository repo;
     private final ObjectMapper mapper;
     private final MongoTemplate mongoTemplate;
+    private final NSEDownloaderService nseDownloaderService;
+    private final ExpirySelectorService expirySelectorService;
 
     // Cache for NSE.json contents
     private List<NseInstrument> nseCache = Collections.emptyList();
@@ -633,51 +638,37 @@ public Optional<String> nearestNiftyFutureKey() {
     return Optional.ofNullable(current.getInstrumentKey());
 }
 
-public void refreshNiftyOptionsCurrentWeek() {
-    log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
-    try {
-        File jsonFile = new File("src/main/resources/data/NSE.json");
-        List<NseInstrument> all = mapper.readValue(jsonFile, new TypeReference<>() {});
+    public void refreshNiftyOptionsCurrentWeek() {
+        log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
+        try {
+            ensureNseJsonLoaded(false);
 
-        // normalize
-        for (NseInstrument i : all) {
-            if (i.getName() != null) i.setName(i.getName().trim());
-            if (i.getSegment() != null) i.setSegment(i.getSegment().trim());
-            if (i.getInstrumentType() != null) i.setInstrumentType(i.getInstrumentType().trim());
-            if (i.getUnderlyingKey() != null) i.setUnderlyingKey(i.getUnderlyingKey().trim());
+            LocalDate expiry = expirySelectorService.pickCurrentExpiry(Instant.now());
+            long start = istStartOfDayMs(expiry);
+            long end = istEndOfDayMs(expiry);
+
+            List<NseInstrument> currentWeek = nseCache.stream()
+                    .peek(this::normalizeInstrument)
+                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
+                    .filter(i -> "NSE_FO".equals(i.getSegment()))
+                    .filter(i -> {
+                        String t = i.getInstrumentType();
+                        return "CE".equals(t) || "PE".equals(t);
+                    })
+                    .filter(i -> i.getExpiry() >= start && i.getExpiry() < end)
+                    .toList();
+
+            mongoTemplate.dropCollection("nse_instruments");
+            if (!currentWeek.isEmpty()) {
+                mongoTemplate.insert(currentWeek, "nse_instruments");
+            }
+
+            log.info("✅ nse_instruments refreshed with {} CURRENT-WEEK CE/PE (expiry={})",
+                    currentWeek.size(), expiry);
+        } catch (Exception e) {
+            log.error("❌ Failed to refresh CURRENT-WEEK instruments", e);
         }
-
-        long currentWeekExpiry = detectCurrentWeekExpiryEpoch(all);
-
-        List<NseInstrument> currentWeek = all.stream()
-                .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
-                .filter(i -> "NSE_FO".equals(i.getSegment()))
-                .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
-                .filter(i -> i.getExpiry() == currentWeekExpiry)
-                .toList();
-
-        mongoTemplate.dropCollection("nse_instruments");
-        mongoTemplate.insert(currentWeek, "nse_instruments");
-
-        log.info("✅ nse_instruments refreshed with {} CURRENT-WEEK CE/PE", currentWeek.size());
-    } catch (Exception e) {
-        log.error("❌ Failed to refresh CURRENT-WEEK instruments", e);
     }
-}
-
-// NEW: tiny helper used by refreshNiftyOptionsCurrentWeek()
-private long detectCurrentWeekExpiryEpoch(List<NseInstrument> all) {
-    long now = System.currentTimeMillis();
-    return all.stream()
-            .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
-            .filter(i -> "NSE_FO".equals(i.getSegment()))
-            .filter(i -> "CE".equals(i.getInstrumentType()) || "PE".equals(i.getInstrumentType()))
-            .mapToLong(NseInstrument::getExpiry)   // primitive long, no nulls
-            .filter(exp -> exp >= now)
-            .sorted()
-            .findFirst()
-            .orElseThrow(() -> new IllegalStateException("No future expiry found in NSE.json"));
-}
     //private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 private static final LocalTime EXPIRY_CUTOFF = LocalTime.of(15, 30); // 3:30 PM IST
 
@@ -749,14 +740,34 @@ public void refreshNiftyOptionsByNearestExpiryFromJson() {
     }
 }
 
-public void purgeExpiredOptionDocs() {
-    long now = System.currentTimeMillis();
-    Query expired = new Query(Criteria.where("expiry").lt(now));
+    public void purgeExpiredOptionDocs() {
+        long now = System.currentTimeMillis();
+        Query expired = new Query(Criteria.where("expiry").lt(now));
 
-    long del1 = mongoTemplate.remove(expired, "nse_instruments").getDeletedCount();
-    long del2 = mongoTemplate.remove(expired, "filtered_nifty_premiums").getDeletedCount();
-    log.info("🧹 Purged expired: nse_instruments={}, filtered_nifty_premiums={}", del1, del2);
-}
+        long del1 = mongoTemplate.remove(expired, "nse_instruments").getDeletedCount();
+        long del2 = mongoTemplate.remove(expired, "filtered_nifty_premiums").getDeletedCount();
+        log.info("🧹 Purged expired: nse_instruments={}, filtered_nifty_premiums={}", del1, del2);
+    }
+
+    @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Kolkata")
+    public void morningRefresh() {
+        try {
+            nseDownloaderService.downloadAndExtract();
+        } catch (Exception e) {
+            log.warn("⚠️ NSE.json download failed", e);
+        }
+        ensureNseJsonLoaded(true);
+        purgeExpiredOptionDocs();
+        refreshNiftyOptionsCurrentWeek();
+        strikesFiltered.set(false);
+    }
+
+    @Scheduled(cron = "0 30 15 * * THU", zone = "Asia/Kolkata")
+    public void rolloverAfterExpiry() {
+        purgeExpiredOptionDocs();
+        refreshNiftyOptionsCurrentWeek();
+        strikesFiltered.set(false);
+    }
 
 private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
