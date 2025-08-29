@@ -942,6 +942,8 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
     public List<OptTick> recentOptionTicks(String symbol) {
         ConcurrentLinkedDeque<OptTick> dq = optionBuffers.get(symbol);
         if (dq == null) return List.of();
+        Instant cutoff = Instant.now().minusSeconds(60);
+        dq.removeIf(t -> t.ts().isBefore(cutoff));
         return new ArrayList<>(dq);
     }
 
