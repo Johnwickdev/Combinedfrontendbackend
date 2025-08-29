@@ -71,5 +71,51 @@ public class ExpirySelectorService {
     public LocalDate pickCurrentExpiry(Instant nowUtc) {
         return pickCurrentExpiry(ZonedDateTime.ofInstant(nowUtc, IST));
     }
+
+    /**
+     * Picks the current weekly expiry in a fully IST-aware manner.
+     * @param nowUtc current instant in UTC
+     * @param expiriesEpochMs candidate expiry epochs in milliseconds
+     * @param zoneIst zone id representing IST
+     * @return chosen expiry instant (at 15:30 IST)
+     */
+    public Instant pickCurrentWeeklyExpiry(Instant nowUtc, List<Long> expiriesEpochMs, ZoneId zoneIst) {
+        ZonedDateTime nowIst = ZonedDateTime.ofInstant(nowUtc, zoneIst);
+        ZonedDateTime marketCloseIst = nowIst.withHour(15).withMinute(30).withSecond(0).withNano(0);
+        ZonedDateTime pivotIst = nowIst.isBefore(marketCloseIst)
+                ? nowIst
+                : nowIst.plusDays(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
+
+        List<Long> sorted = expiriesEpochMs.stream().distinct().sorted().toList();
+        Instant chosen = null;
+        for (Long expMs : sorted) {
+            ZonedDateTime expiryIst = Instant.ofEpochMilli(expMs)
+                    .atZone(zoneIst)
+                    .withHour(15).withMinute(30).withSecond(0).withNano(0);
+            if (!expiryIst.isBefore(pivotIst)) {
+                chosen = expiryIst.toInstant();
+                break;
+            }
+        }
+        if (chosen == null && !sorted.isEmpty()) {
+            Long last = sorted.get(sorted.size() - 1);
+            chosen = Instant.ofEpochMilli(last)
+                    .atZone(zoneIst)
+                    .withHour(15).withMinute(30).withSecond(0).withNano(0)
+                    .toInstant();
+        }
+        String candidates = summarise(sorted);
+        log.info("EXPIRY-PICK nowIst={} pivotIst={} chosenExpiryIst={} (epochMs={}) poolSize={} candidates={}",
+                nowIst, pivotIst, chosen.atZone(zoneIst), chosen.toEpochMilli(), sorted.size(), candidates);
+        return chosen;
+    }
+
+    private static String summarise(List<Long> sorted) {
+        if (sorted.isEmpty()) return "[]";
+        if (sorted.size() <= 6) return sorted.toString();
+        List<Long> first3 = sorted.subList(0, 3);
+        List<Long> last3 = sorted.subList(sorted.size() - 3, sorted.size());
+        return first3 + "..." + last3;
+    }
 }
 

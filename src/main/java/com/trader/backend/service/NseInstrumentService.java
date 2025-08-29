@@ -116,6 +116,8 @@ public class NseInstrumentService {
     /** Stats returned by refreshFromNseJson. */
     public record RefreshStats(int downloaded, long ceSaved, long peSaved, List<LocalDate> expiries) {}
 
+    public record OptionBatch(long expiry, List<NseInstrument> ce, List<NseInstrument> pe) {}
+
     /**
      * Persist NIFTY option instruments for the next 4 expiries from NSE.json.
      * Also updates meta_config with the currently selected expiry.
@@ -198,6 +200,90 @@ public class NseInstrumentService {
             log.info("OPTIONS-REFRESH triggered (empty collections) — saved CE={} PE={} expiries={}",
                     st.ceSaved(), st.peSaved(), expStr);
         }
+    }
+
+    /**
+     * Ensure CE/PE instruments for the current weekly expiry are present.
+     * Loads from Mongo if available, otherwise filters from NSE.json and saves.
+     */
+    public synchronized OptionBatch loadCurrentWeekOptionInstruments() {
+        ensureNseJsonLoaded(false);
+
+        List<NseInstrument> all = new ArrayList<>(nseCache);
+        all.forEach(this::normalizeInstrument);
+
+        List<Long> expiries = all.stream()
+                .filter(i -> "NSE_FO".equals(i.getSegment()))
+                .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
+                .filter(i -> {
+                    String t = i.getInstrumentType();
+                    return "CE".equals(t) || "PE".equals(t);
+                })
+                .map(NseInstrument::getExpiry)
+                .distinct()
+                .sorted()
+                .toList();
+
+        Instant picked = expirySelectorService.pickCurrentWeeklyExpiry(Instant.now(), expiries, ZoneId.of("Asia/Kolkata"));
+        long chosenEpochMs = expiries.stream()
+                .filter(ms -> Instant.ofEpochMilli(ms).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate()
+                        .equals(picked.atZone(ZoneId.of("Asia/Kolkata")).toLocalDate()))
+                .findFirst()
+                .orElse(picked.toEpochMilli());
+
+        Query q = new Query(new Criteria().andOperator(
+                Criteria.where("segment").is("NSE_FO"),
+                Criteria.where("name").is("NIFTY"),
+                Criteria.where("instrumentType").in("CE", "PE"),
+                Criteria.where("expiry").is(chosenEpochMs)
+        ));
+        List<NseInstrument> existing = mongoTemplate.find(q, NseInstrument.class);
+
+        if (existing.isEmpty()) {
+            List<NseInstrument> filtered = all.stream()
+                    .filter(i -> "NSE_FO".equals(i.getSegment()))
+                    .filter(i -> "NIFTY".equalsIgnoreCase(i.getName()))
+                    .filter(i -> i.getExpiry() == chosenEpochMs)
+                    .filter(i -> {
+                        String t = i.getInstrumentType();
+                        return "CE".equals(t) || "PE".equals(t);
+                    })
+                    .collect(Collectors.toList());
+            if (!filtered.isEmpty()) {
+                mongoTemplate.insert(filtered, NseInstrument.class);
+                log.info("nse_instruments refreshed: {} docs for expiry={}", filtered.size(), chosenEpochMs);
+            } else {
+                log.error("Still empty after refresh. Aborting CE/PE filtering.");
+            }
+            existing = filtered;
+        }
+
+        long ceCount = existing.stream().filter(i -> "CE".equals(i.getInstrumentType())).count();
+        long peCount = existing.stream().filter(i -> "PE".equals(i.getInstrumentType())).count();
+        NseInstrument exampleCE = existing.stream().filter(i -> "CE".equals(i.getInstrumentType())).findFirst().orElse(null);
+        NseInstrument examplePE = existing.stream().filter(i -> "PE".equals(i.getInstrumentType())).findFirst().orElse(null);
+        if (!existing.isEmpty()) {
+            log.info("CE/PE ready: CE={} PE={}, exampleCE={}/{} examplePE={}/{}",
+                    ceCount, peCount,
+                    exampleCE != null ? exampleCE.getInstrumentKey() : "-",
+                    exampleCE != null ? exampleCE.getStrikePrice() : null,
+                    examplePE != null ? examplePE.getInstrumentKey() : "-",
+                    examplePE != null ? examplePE.getStrikePrice() : null);
+        }
+
+        List<NseInstrument> ce = existing.stream().filter(i -> "CE".equals(i.getInstrumentType())).toList();
+        List<NseInstrument> pe = existing.stream().filter(i -> "PE".equals(i.getInstrumentType())).toList();
+        return new OptionBatch(chosenEpochMs, ce, pe);
+    }
+
+    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Kolkata")
+    public void morningRefresh() {
+        loadCurrentWeekOptionInstruments();
+    }
+
+    @Scheduled(cron = "0 35 15 * * MON-FRI", zone = "Asia/Kolkata")
+    public void postCloseRefresh() {
+        loadCurrentWeekOptionInstruments();
     }
 
     public void saveFilteredInstrumentsToMongo() {
@@ -726,35 +812,7 @@ public Optional<String> nearestNiftyFutureKey() {
 }
 
     public void refreshNiftyOptionsCurrentWeek() {
-        log.info("🔁 Refreshing nse_instruments with CURRENT-WEEK NIFTY CE/PE from NSE.json...");
-        try {
-            ensureNseJsonLoaded(false);
-            ZonedDateTime nowIst = ZonedDateTime.now(IST);
-            LocalDate expiry = expirySelectorService.pickCurrentExpiry(nowIst);
-            long start = istStartOfDayMs(expiry);
-            long end = istEndOfDayMs(expiry);
-
-            List<NseInstrument> currentWeek = nseCache.stream()
-                    .peek(this::normalizeInstrument)
-                    .filter(i -> "NSE_INDEX|Nifty 50".equals(i.getUnderlyingKey()))
-                    .filter(i -> "NSE_FO".equals(i.getSegment()))
-                    .filter(i -> {
-                        String t = i.getInstrumentType();
-                        return "CE".equals(t) || "PE".equals(t);
-                    })
-                    .filter(i -> i.getExpiry() >= start && i.getExpiry() < end)
-                    .toList();
-
-            mongoTemplate.dropCollection("nse_instruments");
-            if (!currentWeek.isEmpty()) {
-                mongoTemplate.insert(currentWeek, "nse_instruments");
-            }
-
-            log.info("✅ nse_instruments refreshed with {} CURRENT-WEEK CE/PE (expiry={})",
-                    currentWeek.size(), expiry);
-        } catch (Exception e) {
-            log.error("❌ Failed to refresh CURRENT-WEEK instruments", e);
-        }
+        loadCurrentWeekOptionInstruments();
     }
     //private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 private static final LocalTime EXPIRY_CUTOFF = LocalTime.of(15, 30); // 3:30 PM IST
