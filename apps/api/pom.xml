@@ -1,278 +1,229 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
       https://maven.apache.org/xsd/maven-4.0.0.xsd">
-	<modelVersion>4.0.0</modelVersion>
+    <modelVersion>4.0.0</modelVersion>
 
-	<parent>
-		<groupId>org.springframework.boot</groupId>
-		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.2.5</version>
-		<relativePath/>
-	</parent>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
 
-	<groupId>com.trader</groupId>
-	<artifactId>backend</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
-	<name>backend</name>
+    <groupId>com.trader</groupId>
+    <artifactId>backend</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>backend</name>
 
-        <properties>
-                <java.version>17</java.version>
+    <properties>
+        <java.version>17</java.version>
 
-                <!-- Pin all build-related versions -->
-                <flapdoodle.version>4.11.0</flapdoodle.version>
-                <spring-boot-starter-test.version>3.2.5</spring-boot-starter-test.version>
-                <reactor-test.version>3.6.5</reactor-test.version>
-                <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
-                <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
-                <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
+        <!-- Pin all build-related versions -->
+        <flapdoodle.version>4.11.0</flapdoodle.version>
+        <spring-boot-starter-test.version>3.2.5</spring-boot-starter-test.version>
+        <reactor-test.version>3.6.5</reactor-test.version>
+        <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
+        <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+        <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
 
-                <!-- align your Protobuf versions here -->
-                <protoc.version>3.21.12</protoc.version>
-                <!-- Skip frontend build by default to avoid requiring Node during CI -->
-                <skipFrontend>true</skipFrontend>
-        </properties>
+        <!-- align your Protobuf versions here -->
+        <protoc.version>3.21.12</protoc.version>
+        <!-- Skip frontend build by default to avoid requiring Node during CI -->
+        <skipFrontend>true</skipFrontend>
+    </properties>
 
-        <!-- Additional repositories intentionally omitted to avoid network failures
-             when optional repos are unreachable. Maven Central is used by default. -->
+    <!-- Additional repositories intentionally omitted to avoid network failures
+         when optional repos are unreachable. Maven Central is used by default. -->
 
-	<dependencies>
-		<!-- Spring + Redis + WebFlux -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-redis-reactive</artifactId>
-		</dependency>
-                <dependency>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-starter-web</artifactId>
-                </dependency>
+    <dependencies>
+        <!-- Spring + Redis + WebFlux -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
 
-                <dependency>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-starter-actuator</artifactId>
-                </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
 
-		<!-- Upstox SDK -->
-		<dependency>
-			<groupId>com.upstox.api</groupId>
-			<artifactId>upstox-java-sdk</artifactId>
-			<version>1.11.1</version>
-		</dependency>
-
-
-		<!-- Protobuf runtime -->
-		<dependency>
-			<groupId>com.google.protobuf</groupId>
-			<artifactId>protobuf-java</artifactId>
-			<version>${protoc.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.google.protobuf</groupId>
-			<artifactId>protobuf-java-util</artifactId>
-			<version>${protoc.version}</version>
-		</dependency>
-
-		<!-- Lombok -->
-		<dependency>
-			<groupId>org.projectlombok</groupId>
-			<artifactId>lombok</artifactId>
-			<optional>true</optional>
-		</dependency>
-                <!-- Reactive WebClient support -->
-                <dependency>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-starter-webflux</artifactId>
-                </dependency>
+        <!-- Upstox SDK -->
+        <dependency>
+            <groupId>com.upstox.api</groupId>
+            <artifactId>upstox-java-sdk</artifactId>
+            <version>1.11.1</version>
+        </dependency>
 
 
-		<!-- Testing -->
-                <dependency>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-starter-test</artifactId>
-                        <version>${spring-boot-starter-test.version}</version>
-                        <scope>test</scope>
-                </dependency>
-                <dependency>
-                        <groupId>io.projectreactor</groupId>
-                        <artifactId>reactor-test</artifactId>
-                        <version>${reactor-test.version}</version>
-                        <scope>test</scope>
-                </dependency>
-		<dependency>
-			<groupId>com.influxdb</groupId>
-			<artifactId>influxdb-client-java</artifactId>
-			<version>6.9.0</version>
-		</dependency>
-		<dependency>
-			<groupId>com.squareup.okio</groupId>
-			<artifactId>okio</artifactId>
-			<version>3.4.0</version>
-		</dependency>
-                <dependency>
-                        <groupId>org.springframework.boot</groupId>
-                        <artifactId>spring-boot-starter-data-mongodb</artifactId>
-                </dependency>
+        <!-- Protobuf runtime -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protoc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java-util</artifactId>
+            <version>${protoc.version}</version>
+        </dependency>
 
-                <!-- Embedded MongoDB for tests -->
-                <dependency>
-                        <groupId>de.flapdoodle.embed</groupId>
-                        <artifactId>de.flapdoodle.embed.mongo</artifactId>
-                        <version>${flapdoodle.version}</version>
-                        <scope>test</scope>
-                </dependency>
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!-- Reactive WebClient support -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
 
 
-        </dependencies>
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <version>${spring-boot-starter-test.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <version>${reactor-test.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.influxdb</groupId>
+            <artifactId>influxdb-client-java</artifactId>
+            <version>6.9.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okio</groupId>
+            <artifactId>okio</artifactId>
+            <version>3.4.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
 
-        <build>
-                <plugins>
-                        <!-- Java compiler & Lombok -->
-                        <plugin>
-                                <groupId>org.apache.maven.plugins</groupId>
-                                <artifactId>maven-compiler-plugin</artifactId>
-                                <version>${maven.compiler.plugin.version}</version>
-                                <configuration>
-                                        <source>${java.version}</source>
-                                        <target>${java.version}</target>
-                                        <parameters>true</parameters>
-                                        <annotationProcessorPaths>
-                                                <path>
-                                                        <groupId>org.projectlombok</groupId>
-                                                        <artifactId>lombok</artifactId>
-                                                        <version>1.18.30</version>
-                                                </path>
-                                        </annotationProcessorPaths>
-                                </configuration>
-                        </plugin>
+        <!-- Embedded MongoDB for tests -->
+        <dependency>
+            <groupId>de.flapdoodle.embed</groupId>
+            <artifactId>de.flapdoodle.embed.mongo</artifactId>
+            <version>${flapdoodle.version}</version>
+            <scope>test</scope>
+        </dependency>
 
-                       <plugin>
-                               <groupId>org.apache.maven.plugins</groupId>
-                               <artifactId>maven-surefire-plugin</artifactId>
-                               <version>${maven.surefire.plugin.version}</version>
-                               <configuration>
-                                       <failIfNoTests>false</failIfNoTests>
-                                       <!-- If you have specific failing tests, exclude them here to keep local builds green: -->
-                                       <!-- <excludes>
-                                         <exclude>**/NseInstrumentServiceTest.java</exclude>
-                                       </excludes> -->
-                               </configuration>
-                       </plugin>
 
-                        <plugin>
-                                <groupId>org.apache.maven.plugins</groupId>
-                                <artifactId>maven-failsafe-plugin</artifactId>
-                                <version>${maven.failsafe.plugin.version}</version>
-                        </plugin>
+    </dependencies>
 
-                        <!-- Spring Boot repackage -->
-                        <plugin>
-                                <groupId>org.springframework.boot</groupId>
-                                <artifactId>spring-boot-maven-plugin</artifactId>
-                                <version>3.2.5</version>
-                                <configuration>
-                                        <excludes>
-                                                <exclude>
-                                                        <groupId>org.projectlombok</groupId>
-                                                        <artifactId>lombok</artifactId>
-                                                </exclude>
-                                        </excludes>
-                                </configuration>
-                        </plugin>
+    <build>
+        <plugins>
+            <!-- Java compiler & Lombok -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven.compiler.plugin.version}</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <parameters>true</parameters>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>1.18.30</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
 
-                        <!-- OS detection, needed for protoc classifier -->
-                        <plugin>
-                                <groupId>kr.motd.maven</groupId>
-                                <artifactId>os-maven-plugin</artifactId>
-                                <version>1.7.0</version>
-                                <executions>
-                                        <execution>
-                                                <goals>
-                                                        <goal>detect</goal>
-                                                </goals>
-                                        </execution>
-                                </executions>
-                        </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${maven.surefire.plugin.version}</version>
+                <configuration>
+                    <failIfNoTests>false</failIfNoTests>
+                    <!-- If you have specific failing tests, exclude them here to keep local builds green: -->
+                    <!-- <excludes>
+                      <exclude>**/NseInstrumentServiceTest.java</exclude>
+                    </excludes> -->
+                </configuration>
+            </plugin>
 
-                        <!-- Protobuf code generation -->
-                        <plugin>
-                                <groupId>org.xolstice.maven.plugins</groupId>
-                                <artifactId>protobuf-maven-plugin</artifactId>
-                                <version>0.6.1</version>
-                                <configuration>
-                                        <!-- must match your protobuf-java version -->
-                                        <!--suppress UnresolvedMavenProperty -->
-                                        <protocArtifact>
-                                                com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}
-                                        </protocArtifact>
-                                </configuration>
-                                <executions>
-                                        <execution>
-                                                <goals>
-                                                        <goal>compile</goal>
-                                                </goals>
-                                        </execution>
-                                </executions>
-                        </plugin>
-                         <plugin>
-      <groupId>com.github.eirslett</groupId>
-      <artifactId>frontend-maven-plugin</artifactId>
-      <version>1.13.4</version>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>${maven.failsafe.plugin.version}</version>
+            </plugin>
 
-      <!-- run npm inside frontend/, relying on system Node instead of downloading -->
-      <configuration>
-        <workingDirectory>frontend</workingDirectory>
-        <npmInheritsProxyConfigFromMaven>false</npmInheritsProxyConfigFromMaven>
-        <skip>${skipFrontend}</skip>
-      </configuration>
+            <!-- Spring Boot repackage -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
 
-      <executions>
-        <execution>
-          <id>npm install</id>
-          <goals><goal>npm</goal></goals>
-          <configuration><arguments>install</arguments></configuration>
-        </execution>
-        <execution>
-          <id>ng build</id>
-          <phase>generate-resources</phase>
-          <goals><goal>npm</goal></goals>
-          <configuration><arguments>run build -- --configuration production</arguments></configuration>
-        </execution>
-      </executions>
-    </plugin>
+            <!-- OS detection, needed for protoc classifier -->
+            <plugin>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>detect</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
 
-    <!-- copy dist/ to Spring Boot’s static/ -->
-    <plugin>
-      <groupId>org.apache.maven.plugins</groupId>
-      <artifactId>maven-resources-plugin</artifactId>
-      <version>3.3.1</version>
-      <executions>
-        <execution>
-          <id>copy-angular</id>
-          <phase>process-resources</phase>
-          <goals><goal>copy-resources</goal></goals>
-          <configuration>
-            <outputDirectory>${project.basedir}/src/main/resources/static</outputDirectory>
-            <resources>
-              <resource>
-                <directory>${project.basedir}/frontend/dist/frontend</directory>
-                <filtering>false</filtering>
-              </resource>
-            </resources>
-          </configuration>
-        </execution>
-      </executions>
-    </plugin>
-                </plugins>
-        </build>
+            <!-- Protobuf code generation -->
+            <plugin>
+                <groupId>org.xolstice.maven.plugins</groupId>
+                <artifactId>protobuf-maven-plugin</artifactId>
+                <version>0.6.1</version>
+                <configuration>
+                    <!-- must match your protobuf-java version -->
+                    <!--suppress UnresolvedMavenProperty -->
+                    <protocArtifact>
+                        com.google.protobuf:protoc:${protoc.version}:exe:${os.detected.classifier}
+                    </protocArtifact>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 
-        <profiles>
-                <profile>
-                        <id>ci</id>
-                        <properties>
-                                <maven.test.skip>true</maven.test.skip>   <!-- prevents test compile & run -->
-                                <skipTests>true</skipTests>               <!-- redundant but harmless -->
-                        </properties>
-                </profile>
-        </profiles>
+    <profiles>
+        <profile>
+            <id>ci</id>
+            <properties>
+                <maven.test.skip>true</maven.test.skip>   <!-- prevents test compile & run -->
+                <skipTests>true</skipTests>               <!-- redundant but harmless -->
+            </properties>
+        </profile>
+    </profiles>
 </project>
