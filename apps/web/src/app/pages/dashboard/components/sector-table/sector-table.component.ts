@@ -2,8 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { interval, Subscription } from 'rxjs';
 import { finalize } from 'rxjs/operators';
-import { MarketDataService } from '../../../../services/market-data.service';
-import { TradeRow } from '../../../../models/trade-row';
+import { MarketDataService, SectorTradeRow } from '../../../../services/market-data.service';
 
 @Component({
   selector: 'app-sector-table',
@@ -15,7 +14,7 @@ import { TradeRow } from '../../../../models/trade-row';
 export class SectorTableComponent implements OnInit, OnDestroy {
   selectedSide: 'both' | 'CE' | 'PE' = 'both';
   limit = 50;
-  rows: TradeRow[] = [];
+  rows: SectorTradeRow[] = [];
   loading = true;
   lastLoadedAt?: string;
   private timerSub?: Subscription;
@@ -36,11 +35,11 @@ export class SectorTableComponent implements OnInit, OnDestroy {
       this.loading = true;
     }
     this.marketData
-      .getSectorTrades(this.limit, this.selectedSide)
+      .getSectorTrades(this.selectedSide, this.limit)
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
-        next: rows => {
-          this.rows = rows ?? [];
+        next: res => {
+          this.rows = res.rows ?? [];
           this.lastLoadedAt = new Date().toISOString();
         },
         error: () => {
@@ -57,5 +56,5 @@ export class SectorTableComponent implements OnInit, OnDestroy {
     }
   }
 
-  trackTx = (_: number, r: TradeRow) => r.txId;
+  trackRow = (_: number, r: SectorTradeRow) => r.ts + r.optionType + r.strike;
 }
