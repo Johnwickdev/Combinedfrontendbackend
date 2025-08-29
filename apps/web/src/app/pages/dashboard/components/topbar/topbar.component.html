@@ -1,0 +1,13 @@
+<div class="topbar">
+  <div class="brand">NIFTY / Options <span class="chev">⌄</span></div>
+  <div class="search">
+    <input type="text" placeholder="Search" />
+  </div>
+  <div class="right">
+    <div class="switch pill">
+      <button [class.active]="mode==='chart'" (click)="toggle('chart')">Chart</button>
+      <button [class.active]="mode==='trade'" (click)="toggle('trade')">Trade</button>
+    </div>
+    <div class="avatar pill">U ⌄</div>
+  </div>
+</div>

@@ -1,0 +1,9 @@
+<div class="donut panel">
+  <svg viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="50" stroke-width="20" stroke="var(--panel-soft)" fill="none"></circle>
+    <circle cx="60" cy="60" r="50" stroke-width="20" stroke="var(--accent)" fill="none" stroke-linecap="round"
+      [attr.stroke-dasharray]="circumference"
+      [attr.stroke-dashoffset]="circumference - (value/100)*circumference"></circle>
+    <text x="60" y="65" text-anchor="middle" class="value">{{value}}</text>
+  </svg>
+</div>

@@ -1,0 +1,101 @@
+:host {
+  display: block;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.pill-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.seg-pill {
+  padding: 4px 10px;
+  border-radius: 9999px;
+  cursor: pointer;
+  border: 1px solid #444;
+  background: #222a;
+  color: #ddd;
+  font-size: 12px;
+}
+
+.seg-pill.active {
+  background: rgba(120, 80, 255, 0.25);
+  border: 1px solid rgba(120, 80, 255, 0.6);
+  color: #fff;
+}
+
+.src-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  margin-left: 8px;
+}
+
+.src-live {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.src-hist {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.table-container {
+  height: 360px;
+  overflow: auto;
+}
+
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mini-table th,
+.mini-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+
+.num {
+  text-align: right;
+}
+
+.side-chip {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.side-chip.ce {
+  background: #6d4cff;
+  color: #fff;
+}
+
+.side-chip.pe {
+  background: #444;
+  color: #ddd;
+}
+
+.up {
+  color: #36d399;
+}
+
+.down {
+  color: #f87272;
+}
+
+.loading,
+.error,
+.empty {
+  padding: 1rem;
+  opacity: 0.7;
+}
+
