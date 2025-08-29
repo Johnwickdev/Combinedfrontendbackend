@@ -25,14 +25,8 @@
                 <skipFrontend>true</skipFrontend>
         </properties>
 
-        <!-- Additional repositories -->
-        <repositories>
-                <!-- Needed for artifacts like com.github.jai-imageio:jai-imageio-core -->
-                <repository>
-                        <id>jitpack.io</id>
-                        <url>https://jitpack.io</url>
-                </repository>
-        </repositories>
+        <!-- Additional repositories intentionally omitted to avoid network failures
+             when optional repos are unreachable. Maven Central is used by default. -->
 
 	<dependencies>
 		<!-- Spring + Redis + WebFlux -->
