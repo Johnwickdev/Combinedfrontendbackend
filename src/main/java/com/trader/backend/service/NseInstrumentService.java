@@ -114,7 +114,7 @@ public class NseInstrumentService {
     }
 
     /** Stats returned by refreshFromNseJson. */
-    public record RefreshStats(int downloaded, long ceSaved, long peSaved) {}
+    public record RefreshStats(int downloaded, long ceSaved, long peSaved, List<LocalDate> expiries) {}
 
     /**
      * Persist NIFTY option instruments for the next 4 expiries from NSE.json.
@@ -159,18 +159,32 @@ public class NseInstrumentService {
         long ce = filtered.stream().filter(i -> "CE".equals(i.getInstrumentType())).count();
         long pe = filtered.stream().filter(i -> "PE".equals(i.getInstrumentType())).count();
 
-        // determine and persist current expiry choice
-        LocalDate current = expirySelectorService.selectCurrentOptionExpiry(Instant.now());
-        Document prev = mongoTemplate.findById("options_current_expiry", Document.class, "meta_config");
-        String prevVal = prev != null ? prev.getString("value") : null;
-        if (prevVal == null || !prevVal.equals(current.toString())) {
-            Document d = new Document("_id", "options_current_expiry").append("value", current.toString());
-            mongoTemplate.save(d, "meta_config");
-            String reason = prevVal == null ? "init" : "rollover";
-            log.info("OPTIONS expiry set -> {} (weekly) [reason={}]", current, reason);
-        }
+        List<LocalDate> expiryDates = expiries.stream()
+                .map(ms -> Instant.ofEpochMilli(ms).atZone(ZoneId.of("Asia/Kolkata")).toLocalDate())
+                .toList();
 
-        return new RefreshStats(all.size(), ce, pe);
+        return new RefreshStats(all.size(), ce, pe, expiryDates);
+    }
+
+    /**
+     * Ensure CE/PE instruments for the current expiry exist in Mongo.
+     * Triggers refreshFromNseJson() once if empty.
+     */
+    public synchronized boolean ensureOptionsLoaded(ZonedDateTime nowIst) {
+        LocalDate current = expirySelectorService.selectCurrentOptionExpiry(nowIst);
+        long expMs = current.atStartOfDay(nowIst.getZone()).toInstant().toEpochMilli();
+        Query q = new Query(new Criteria().andOperator(
+                Criteria.where("instrumentType").in("CE", "PE"),
+                Criteria.where("expiry").is(expMs)));
+        long count = mongoTemplate.count(q, "nse_instruments");
+        if (count == 0) {
+            RefreshStats st = refreshFromNseJson();
+            String expStr = String.join(",", st.expiries().stream().map(LocalDate::toString).toList());
+            log.info("OPTIONS-REFRESH triggered (empty) — saved CE={} PE={} expiries={}",
+                    st.ceSaved(), st.peSaved(), expStr);
+        }
+        long after = mongoTemplate.count(q, "nse_instruments");
+        return after > 0;
     }
 
     /** Refresh from NSE.json if CE/PE collections are empty. */
@@ -179,8 +193,10 @@ public class NseInstrumentService {
         long count = mongoTemplate.count(q, "nse_instruments");
         if (count == 0) {
             RefreshStats st = refreshFromNseJson();
-            log.info("OPTIONS-REFRESH triggered (empty collections) — downloaded {} saved CE={} PE={}",
-                    st.downloaded(), st.ceSaved(), st.peSaved());
+            String expStr = String.join(",",
+                    st.expiries().stream().map(LocalDate::toString).toList());
+            log.info("OPTIONS-REFRESH triggered (empty collections) — saved CE={} PE={} expiries={}",
+                    st.ceSaved(), st.peSaved(), expStr);
         }
     }
 

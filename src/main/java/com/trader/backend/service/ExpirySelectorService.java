@@ -1,63 +1,67 @@
 package com.trader.backend.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.*;
 import java.time.temporal.TemporalAdjusters;
+import java.util.List;
 
 /**
- * Selects the current weekly NIFTY options expiry based on
- * India trading calendar rules. All times are evaluated in
- * Asia/Kolkata (IST).
+ * Selects and persists the current NIFTY option expiry.
  */
 @Service
 @Slf4j
 public class ExpirySelectorService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
-    private static final LocalTime ROLLOVER_TIME = LocalTime.of(15, 30);
+    private static final LocalTime ROLLOVER = LocalTime.of(15, 30);
 
-    private LocalDate currentExpiry;
+    private final MongoTemplate mongoTemplate;
+
+    public ExpirySelectorService(MongoTemplate mongoTemplate) {
+        this.mongoTemplate = mongoTemplate;
+    }
 
     /**
-     * Picks the current weekly expiry for the given instant.
-     * Logs whenever the selected expiry changes.
+     * No-arg constructor for tests where persistence isn't needed.
      */
-    public synchronized LocalDate pickCurrentExpiry(Instant now) {
-        ZonedDateTime z = now.atZone(IST);
-        LocalDate next = computeExpiry(z);
-        if (currentExpiry == null || !currentExpiry.equals(next)) {
-            String reason = currentExpiry == null ? "DAILY" : "ROLLOVER";
-            log.info("EXPIRY current={} reason={}", next, reason);
-            currentExpiry = next;
-        }
-        return currentExpiry;
+    public ExpirySelectorService() {
+        this.mongoTemplate = null;
     }
 
-    /** Public entry for option expiry selection with explicit IST instant. */
-    public LocalDate selectCurrentOptionExpiry(Instant now) {
-        return pickCurrentExpiry(now);
-    }
-
-    private LocalDate computeExpiry(ZonedDateTime z) {
+    /**
+     * Selects current weekly expiry based on trading rules and stores in meta_config.
+     * Logs when the value changes.
+     */
+    public synchronized LocalDate selectCurrentOptionExpiry(ZonedDateTime nowIst) {
+        ZonedDateTime z = nowIst.withZoneSameInstant(IST);
+        LocalDate next;
         DayOfWeek dow = z.getDayOfWeek();
-        LocalDate date = z.toLocalDate();
-
         if (dow == DayOfWeek.THURSDAY) {
-            if (z.toLocalTime().isAfter(ROLLOVER_TIME)) {
-                return date.with(TemporalAdjusters.next(DayOfWeek.THURSDAY));
+            if (z.toLocalTime().isBefore(ROLLOVER)) {
+                next = z.toLocalDate();
+            } else {
+                next = z.toLocalDate().with(TemporalAdjusters.next(DayOfWeek.THURSDAY));
             }
-            return date;
+        } else if (dow.getValue() >= DayOfWeek.FRIDAY.getValue()) {
+            next = z.toLocalDate().with(TemporalAdjusters.next(DayOfWeek.THURSDAY));
+        } else {
+            next = z.toLocalDate().with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY));
         }
-        if (dow == DayOfWeek.FRIDAY) {
-            return date.with(TemporalAdjusters.next(DayOfWeek.THURSDAY));
+
+        if (mongoTemplate != null) {
+            Document prev = mongoTemplate.findById("options_current_expiry", Document.class, "meta_config");
+            String prevVal = prev != null ? prev.getString("value") : null;
+            if (prevVal == null || !prevVal.equals(next.toString())) {
+                Document d = new Document("_id", "options_current_expiry").append("value", next.toString());
+                mongoTemplate.save(d, "meta_config");
+                log.info("OPTIONS expiry -> {} [rollover]", next);
+            }
         }
-        if (dow.getValue() < DayOfWeek.THURSDAY.getValue()) {
-            return date.with(TemporalAdjusters.nextOrSame(DayOfWeek.THURSDAY));
-        }
-        // weekend
-        return date.with(TemporalAdjusters.next(DayOfWeek.THURSDAY));
+        return next;
     }
 }
 

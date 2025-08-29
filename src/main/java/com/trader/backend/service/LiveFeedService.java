@@ -214,6 +214,15 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         initLiveWebSocket();
     }
 
+    /**
+     * Public entry to start or resume feeds ensuring option instruments exist.
+     */
+    public void startOrResume() {
+        ZonedDateTime nowIst = ZonedDateTime.now(MarketHours.zone());
+        nseInstrumentService.ensureOptionsLoaded(nowIst);
+        startLive();
+    }
+
     public void initLiveWebSocket() {
         if (mockMode) {
             log.info("🧪 Mock mode enabled - skipping live feed startup");
