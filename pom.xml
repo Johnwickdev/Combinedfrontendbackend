@@ -22,6 +22,8 @@
 
                 <!-- Pin all build-related versions -->
                 <flapdoodle.version>4.11.0</flapdoodle.version>
+                <spring-boot-starter-test.version>3.2.5</spring-boot-starter-test.version>
+                <reactor-test.version>3.6.5</reactor-test.version>
                 <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
                 <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
                 <maven.failsafe.plugin.version>3.2.5</maven.failsafe.plugin.version>
@@ -85,16 +87,18 @@
 
 
 		<!-- Testing -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-test</artifactId>
-			<scope>test</scope>
-		</dependency>
-		<dependency>
-			<groupId>io.projectreactor</groupId>
-			<artifactId>reactor-test</artifactId>
-			<scope>test</scope>
-		</dependency>
+                <dependency>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-test</artifactId>
+                        <version>${spring-boot-starter-test.version}</version>
+                        <scope>test</scope>
+                </dependency>
+                <dependency>
+                        <groupId>io.projectreactor</groupId>
+                        <artifactId>reactor-test</artifactId>
+                        <version>${reactor-test.version}</version>
+                        <scope>test</scope>
+                </dependency>
 		<dependency>
 			<groupId>com.influxdb</groupId>
 			<artifactId>influxdb-client-java</artifactId>
@@ -261,12 +265,6 @@
         <profiles>
                 <profile>
                         <id>ci</id>
-                        <activation>
-                                <property>
-                                        <name>env.CI</name>
-                                        <value>true</value>
-                                </property>
-                        </activation>
                         <properties>
                                 <maven.test.skip>true</maven.test.skip>
                         </properties>
