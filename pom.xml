@@ -19,8 +19,10 @@
 
         <properties>
                 <java.version>17</java.version>
+                <de.flapdoodle.embed.mongo.version>4.12.2</de.flapdoodle.embed.mongo.version>
                 <!-- align your Protobuf versions here -->
                 <protoc.version>3.21.12</protoc.version>
+                <maven.compiler.release>17</maven.compiler.release>
                 <!-- Skip frontend build by default to avoid requiring Node during CI -->
                 <skipFrontend>true</skipFrontend>
         </properties>
@@ -106,7 +108,9 @@
                 <dependency>
                         <groupId>de.flapdoodle.embed</groupId>
                         <artifactId>de.flapdoodle.embed.mongo</artifactId>
+                        <version>${de.flapdoodle.embed.mongo.version}</version>
                         <scope>test</scope>
+                        <optional>true</optional>
                 </dependency>
 
 
