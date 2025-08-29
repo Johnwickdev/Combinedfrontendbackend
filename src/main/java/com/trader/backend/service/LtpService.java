@@ -21,11 +21,13 @@ public class LtpService {
                 .filter(t -> Duration.between(t.ts(), now).toMillis() <= 5000);
         if (live.isPresent()) {
             Tick t = live.get();
+            liveFeedService.logResolvedLtp(instrumentKey, t.ltp(), "live");
             return new Result(t.ltp(), t.ts(), "live");
         }
         Optional<Tick> stored = influxTickService.latestTick(instrumentKey);
         if (stored.isPresent()) {
             Tick t = stored.get();
+            liveFeedService.logResolvedLtp(instrumentKey, t.ltp(), "stored");
             return new Result(t.ltp(), t.ts(), "influx");
         }
         return new Result(null, null, "none");

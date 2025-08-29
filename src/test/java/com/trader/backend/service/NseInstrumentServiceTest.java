@@ -12,7 +12,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class NseInstrumentServiceTest {
-    private NseInstrumentService svc = new NseInstrumentService(null, null, null, null, new ObjectMapper(), null);
+    private NseInstrumentService svc = new NseInstrumentService(null, null, null, null, new ObjectMapper(), null, null, null);
 
     @Test
     void picksEarliestNonExpired() {

@@ -500,6 +500,11 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 public void streamFilteredNiftyOptions() {
     NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
     List<String> desired = sel.keys();
+    if (desired.isEmpty()) {
+        log.warn("⚠️ No CE/PE instruments found in DB; skipping option stream");
+        optionsStreamStarted.set(false);
+        return;
+    }
     Set<String> toAdd = new HashSet<>(desired);
     toAdd.removeAll(currentlySubscribedKeys);
     Set<String> toRemove = new HashSet<>(currentlySubscribedKeys);
@@ -747,10 +752,26 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
 }
 
     private void logLtp(String instrumentKey, double ltp, long ts) {
+        logResolvedLtp(instrumentKey, ltp, "live");
+    }
+
+    public void logResolvedLtp(String instrumentKey, double ltp, String source) {
         NseInstrument info = instrumentCache.computeIfAbsent(instrumentKey,
                 k -> mongoTemplate.findById(k, NseInstrument.class));
-        String symbol = info != null && info.getTradingSymbol() != null ? info.getTradingSymbol() : instrumentKey;
-        log.info("LTP [{}] live={} ts={}", symbol, ltp, Instant.ofEpochMilli(ts));
+        String label = instrumentKey;
+        if (info != null) {
+            String type = info.getInstrumentType();
+            if (type != null && type.toUpperCase().contains("FUT")) {
+                label = "NIFTY FUT";
+            } else if ("CE".equalsIgnoreCase(type) || "PE".equalsIgnoreCase(type)) {
+                Integer sp = info.getStrikePrice();
+                String strike = sp != null ? String.valueOf(sp) : "";
+                label = String.format("NIFTY %s strike=%s", type.toUpperCase(), strike);
+            } else if (info.getTradingSymbol() != null) {
+                label = info.getTradingSymbol();
+            }
+        }
+        log.info("LTP [{}] {}={}", label, source, ltp);
     }
 
     private void onMarketClose() {
