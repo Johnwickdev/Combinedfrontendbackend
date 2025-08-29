@@ -11,7 +11,7 @@ RUN ./mvnw -B -V -e -DskipFrontend=true -Dmaven.test.skip=true dependency:go-off
 
 # Now copy sources and build
 COPY src ./src
-RUN ./mvnw -B -V -e -DskipFrontend=true -Dmaven.test.skip=true -Pci clean package
+RUN ./mvnw clean package -DskipFrontend=true -Dmaven.test.skip=true -Pci
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
