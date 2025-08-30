@@ -33,7 +33,7 @@ import { Subscription } from 'rxjs';
 })
 export class DashboardComponent implements OnInit, OnDestroy {
   metrics = [
-    { title: 'Total Liquidity', value: '₹ 0.00' },
+    { title: 'Balance', value: '₹ 0.00' },
     { title: 'Daily Volume', value: '₹ 2,372,139.74' },
     { title: "Open Interest ('000)", value: '120.6' },
     { title: "Lots Traded ('000)", value: '271.35' }
@@ -101,6 +101,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.account.getBalance().subscribe(b => {
             this.metrics[0].value = '₹ ' + b.toFixed(2);
           });
+        } else {
+          this.metrics[0].value = '₹ 0.00';
         }
       }
     });
