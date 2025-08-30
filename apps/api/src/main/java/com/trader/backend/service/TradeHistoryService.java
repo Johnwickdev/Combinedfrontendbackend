@@ -113,7 +113,7 @@ public class TradeHistoryService {
                 String txId = t.instrumentKey() + "-" + t.ts().getEpochSecond();
                 Integer qty = t.qty() > 0 ? t.qty() : null;
                 Integer oi = t.oi() > 0 ? t.oi() : null;
-                out.add(new TradeRow(t.ts(), t.instrumentKey(), type, strike, t.ltp(), changePct, qty, oi, txId));
+                out.add(new TradeRow(t.ts(), t.instrumentKey(), type, strike, t.ltp(), changePct, qty, oi, null, txId));
             }
         }
         out.sort(Comparator.comparing(TradeRow::ts).reversed());
@@ -129,7 +129,7 @@ public class TradeHistoryService {
         String flux = String.format("from(bucket: \"%s\") |> range(start: -1d) |> " +
                         "filter(fn: (r) => r._measurement == \"nifty_option_ticks\") |> " +
                         "filter(fn: (r) => contains(value: r.symbol, set: [%s])) |> " +
-                        "filter(fn: (r) => r._field == \"ltp\" or r._field == \"qty\" or r._field == \"oi\") |> " +
+                        "filter(fn: (r) => r._field == \"ltp\" or r._field == \"qty\" or r._field == \"oi\" or r._field == \"iv\") |> " +
                         "pivot(rowKey:[\"_time\",\"symbol\",\"instrumentKey\"], columnKey:[\"_field\"], valueColumn:\"_value\") |> " +
                         "sort(columns:[\"_time\"], desc:true) |> limit(n:%d)",
                 influxBucket, set, limit * 3);
@@ -161,13 +161,14 @@ public class TradeHistoryService {
                         ? getDouble(rec, "qty").intValue() : null;
                 Integer oi = getDouble(rec, "oi") != null && getDouble(rec, "oi").intValue() > 0
                         ? getDouble(rec, "oi").intValue() : null;
+                Double iv = getDouble(rec, "iv");
                 String instrumentKey = (String) rec.getValueByKey("instrumentKey");
                 Instant ts = (Instant) rec.getValueByKey("_time");
                 String symbol = entry.getKey();
                 OptionType type = symbol.endsWith("PE") ? OptionType.PE : OptionType.CE;
                 int strike = parseStrike(symbol);
                 String txId = instrumentKey + "-" + ts.getEpochSecond();
-                out.add(new TradeRow(ts, instrumentKey, type, strike, ltp, changePct, qty, oi, txId));
+                out.add(new TradeRow(ts, instrumentKey, type, strike, ltp, changePct, qty, oi, iv, txId));
             }
         }
         out.sort(Comparator.comparing(TradeRow::ts).reversed());

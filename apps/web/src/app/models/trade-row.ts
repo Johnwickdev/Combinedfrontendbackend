@@ -10,5 +10,6 @@ export interface TradeRow {
   changePct: number | null;
   qty: number | null;
   oi: number | null;
+  iv: number | null;
   txId: string;
 }
