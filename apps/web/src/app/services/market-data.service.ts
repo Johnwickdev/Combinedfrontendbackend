@@ -6,6 +6,7 @@ import { TradeRow } from '../models/trade-row';
 
 export interface SectorTradeRow {
   ts: string;
+  txId: string;
   optionType: 'CE' | 'PE';
   strike: number;
   ltp: number;

@@ -60,6 +60,6 @@ export class SectorTradesComponent implements OnInit, OnDestroy {
     });
   }
 
-  trackByTs = (_: number, r: SectorTradeRow) => r.ts + r.optionType + r.strike;
+  trackByTs = (_: number, r: SectorTradeRow) => r.txId;
 }
 
