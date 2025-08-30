@@ -1,4 +1,5 @@
 export const environment = {
   production: false,
-  apiBase: 'http://localhost:8081'
+  // Use Spring Boot's default port for local API calls
+  apiBase: 'http://localhost:8080'
 };
