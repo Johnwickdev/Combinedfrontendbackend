@@ -56,5 +56,5 @@ export class SectorTableComponent implements OnInit, OnDestroy {
     }
   }
 
-  trackRow = (_: number, r: SectorTradeRow) => r.ts + r.optionType + r.strike;
+  trackRow = (_: number, r: SectorTradeRow) => r.txId;
 }
