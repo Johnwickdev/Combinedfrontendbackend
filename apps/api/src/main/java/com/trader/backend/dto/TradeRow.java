@@ -11,5 +11,6 @@ public record TradeRow(
         Double changePct,
         Integer qty,
         Integer oi,
+        Double iv,
         String txId
 ) {}
