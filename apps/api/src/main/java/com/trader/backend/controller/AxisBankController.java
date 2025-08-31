@@ -4,6 +4,7 @@ import com.trader.backend.service.AxisBankHistoryService;
 import com.trader.backend.service.AxisBankHistoryService.Candle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,6 +19,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/axisbank")
+@CrossOrigin
 @RequiredArgsConstructor
 public class AxisBankController {
     private final AxisBankHistoryService service;
