@@ -1,13 +1,6 @@
-import { AfterViewInit, Component, ElementRef, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, ViewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-interface Candle {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+import { MarketDataService, Candle } from '../../../../services/market-data.service';
 
 @Component({
   selector: 'app-candle-panel',
@@ -19,27 +12,18 @@ interface Candle {
 export class CandlePanelComponent implements AfterViewInit {
   @ViewChild('canvas', { static: true }) canvas!: ElementRef<HTMLCanvasElement>;
   candles: Candle[] = [];
+  private md = inject(MarketDataService);
 
   ngAfterViewInit() {
-    this.generate();
-    this.draw();
+    this.md.getAxisBankCandles().subscribe(c => {
+      this.candles = c;
+      this.draw();
+    });
     window.addEventListener('resize', () => this.draw());
   }
 
-  generate() {
-    let price = 24835.25;
-    for (let i = 0; i < 60; i++) {
-      const open = price;
-      const close = open + (Math.random() - 0.5) * 20;
-      const high = Math.max(open, close) + Math.random() * 5;
-      const low = Math.min(open, close) - Math.random() * 5;
-      const volume = 100 + Math.random() * 200;
-      this.candles.push({ open, high, low, close, volume });
-      price = close;
-    }
-  }
-
   draw() {
+    if (!this.candles.length) return;
     const canvas = this.canvas.nativeElement;
     const ctx = canvas.getContext('2d')!;
     const dpr = window.devicePixelRatio || 1;
