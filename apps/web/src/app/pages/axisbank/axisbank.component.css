@@ -1,0 +1,9 @@
+.axisbank-page {
+  margin-left: 4rem; /* leave space for side rail */
+  padding: 1rem;
+}
+
+.axisbank-page app-candle-panel {
+  display: block;
+  height: calc(100vh - 2rem);
+}
