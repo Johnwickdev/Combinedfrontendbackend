@@ -15,10 +15,17 @@ export class CandlePanelComponent implements AfterViewInit {
   private md = inject(MarketDataService);
 
   ngAfterViewInit() {
-    this.md.getAxisBankCandles().subscribe(c => {
-      this.candles = c;
-      this.draw();
-    });
+    const load = () => {
+      this.md.getAxisBankCandles().subscribe(c => {
+        if (!c.length) {
+          this.md.fetchAxisBankCandles().subscribe(() => load());
+          return;
+        }
+        this.candles = c;
+        this.draw();
+      });
+    };
+    load();
     window.addEventListener('resize', () => this.draw());
   }
 

@@ -89,6 +89,11 @@ export class MarketDataService {
     return this.http.get<Candle[]>(`${this.apiBase}/axisbank/candles`);
   }
 
+  /** trigger backend to fetch and persist Axis Bank candles */
+  fetchAxisBankCandles(): Observable<Candle[]> {
+    return this.http.post<Candle[]>(`${this.apiBase}/axisbank/fetch`, {});
+  }
+
   getSectorTrades(side: 'both' | 'CE' | 'PE' = 'both', limit = 50): Observable<{ rows: SectorTradeRow[]; source?: 'live' | 'influx' }> {
     const params = new HttpParams().set('limit', limit).set('side', side);
     return this.http

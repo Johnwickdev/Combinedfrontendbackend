@@ -90,16 +90,24 @@ public class AxisBankHistoryService {
         List<Candle> result = new ArrayList<>();
         queryApi.query(flux, influxOrg).forEach(table -> table.getRecords().forEach(rec -> {
             Instant t = (Instant) rec.getValueByKey("_time");
-            Double o = rec.getValueByKey("o", Double.class);
-            Double h = rec.getValueByKey("h", Double.class);
-            Double l = rec.getValueByKey("l", Double.class);
-            Double c = rec.getValueByKey("c", Double.class);
-            Long v = rec.getValueByKey("v", Long.class);
+            Double o = toDouble(rec.getValueByKey("o"));
+            Double h = toDouble(rec.getValueByKey("h"));
+            Double l = toDouble(rec.getValueByKey("l"));
+            Double c = toDouble(rec.getValueByKey("c"));
+            Long v = toLong(rec.getValueByKey("v"));
             if (o != null && h != null && l != null && c != null && v != null) {
                 result.add(new Candle(t.toString(), o, h, l, c, v));
             }
         }));
         return result;
+    }
+
+    private Double toDouble(Object value) {
+        return value instanceof Number ? ((Number) value).doubleValue() : null;
+    }
+
+    private Long toLong(Object value) {
+        return value instanceof Number ? ((Number) value).longValue() : null;
     }
 
     private void analyseAndWriteReport(List<Candle> candles) {
