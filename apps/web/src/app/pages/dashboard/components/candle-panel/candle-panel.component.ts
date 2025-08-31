@@ -16,13 +16,25 @@ export class CandlePanelComponent implements AfterViewInit {
 
   ngAfterViewInit() {
     const load = () => {
-      this.md.getAxisBankCandles().subscribe(c => {
-        if (!c.length) {
-          this.md.fetchAxisBankCandles().subscribe(() => load());
-          return;
+      this.md.getAxisBankCandles().subscribe({
+        next: c => {
+          if (!c.length) {
+            this.md.fetchAxisBankCandles().subscribe({
+              next: () => load(),
+              error: err => {
+                console.error('Failed to fetch candles', err);
+                setTimeout(load, 5000);
+              }
+            });
+            return;
+          }
+          this.candles = c;
+          this.draw();
+        },
+        error: err => {
+          console.error('Failed to load candles', err);
+          setTimeout(load, 5000);
         }
-        this.candles = c;
-        this.draw();
       });
     };
     load();

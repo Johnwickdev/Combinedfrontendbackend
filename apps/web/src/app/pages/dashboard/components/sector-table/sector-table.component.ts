@@ -42,8 +42,9 @@ export class SectorTableComponent implements OnInit, OnDestroy {
           this.rows = res.rows ?? [];
           this.lastLoadedAt = new Date().toISOString();
         },
-        error: () => {
-          this.rows = [];
+        error: err => {
+          console.error('Failed to load sector trades', err);
+          // keep existing rows on error so previously loaded data remains visible
         }
       });
   }
