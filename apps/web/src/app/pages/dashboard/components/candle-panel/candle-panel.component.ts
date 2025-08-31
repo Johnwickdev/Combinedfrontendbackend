@@ -1,4 +1,4 @@
-import { AfterViewInit, Component, ElementRef, ViewChild, inject } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, ViewChild, inject, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MarketDataService, Candle } from '../../../../services/market-data.service';
 
@@ -9,10 +9,11 @@ import { MarketDataService, Candle } from '../../../../services/market-data.serv
   templateUrl: './candle-panel.component.html',
   styleUrls: ['./candle-panel.component.css']
 })
-export class CandlePanelComponent implements AfterViewInit {
+export class CandlePanelComponent implements AfterViewInit, OnDestroy {
   @ViewChild('canvas', { static: true }) canvas!: ElementRef<HTMLCanvasElement>;
   candles: Candle[] = [];
   private md = inject(MarketDataService);
+  private resizeHandler = () => this.draw();
 
   ngAfterViewInit() {
     const load = () => {
@@ -38,7 +39,11 @@ export class CandlePanelComponent implements AfterViewInit {
       });
     };
     load();
-    window.addEventListener('resize', () => this.draw());
+    window.addEventListener('resize', this.resizeHandler);
+  }
+
+  ngOnDestroy() {
+    window.removeEventListener('resize', this.resizeHandler);
   }
 
   draw() {
