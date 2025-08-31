@@ -84,6 +84,11 @@ export class MarketDataService {
     return this.http.get<Candle[]>(`${this.apiBase}/md/candles?instrumentKey=${encodeURIComponent(key)}&tf=1m&lookback=120`);
   }
 
+  /** candles specifically for Axis Bank stored in Influx */
+  getAxisBankCandles(): Observable<Candle[]> {
+    return this.http.get<Candle[]>(`${this.apiBase}/axisbank/candles`);
+  }
+
   getSectorTrades(side: 'both' | 'CE' | 'PE' = 'both', limit = 50): Observable<{ rows: SectorTradeRow[]; source?: 'live' | 'influx' }> {
     const params = new HttpParams().set('limit', limit).set('side', side);
     return this.http
