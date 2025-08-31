@@ -1,6 +1,6 @@
 import { Injectable, NgZone, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { BehaviorSubject, Observable, Subject, catchError, of, map } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, catchError, of, map, timeout } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { TradeRow } from '../models/trade-row';
 
@@ -99,6 +99,7 @@ export class MarketDataService {
     return this.http
       .get<SectorTradeRow[]>(`${this.apiBase}/md/sector-trades`, { params, observe: 'response' })
       .pipe(
+        timeout(5000),
         map(res => {
           const header = res.headers.get('X-Source');
           const rows = (res.body || []).sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
