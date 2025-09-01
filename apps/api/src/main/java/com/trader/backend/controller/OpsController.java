@@ -4,8 +4,11 @@ import com.trader.backend.service.MarketHours;
 import com.trader.backend.service.LiveFeedService;
 import com.trader.backend.service.InfluxTickService;
 import com.trader.backend.service.UpstoxAuthService;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.*;
 import java.util.LinkedHashMap;
@@ -77,8 +80,15 @@ public class OpsController {
     }
 
     @GetMapping("/ops/upstox-balance")
-    public Mono<Map<String, Object>> upstoxBalance() {
+    public Mono<ResponseEntity<Map<String, Object>>> upstoxBalance() {
         return upstoxAuthService.fetchBalance()
-                .map(bal -> Map.of("balance", bal));
+                .map(bal -> ResponseEntity.ok(Map.of("balance", bal)))
+                .onErrorResume(ResponseStatusException.class, e -> {
+                    if (e.getStatusCode() == HttpStatus.UNAUTHORIZED) {
+                        return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                                .body(Map.of("error", "unauthorized")));
+                    }
+                    return Mono.error(e);
+                });
     }
 }
