@@ -17,7 +17,7 @@ public class MockTickRunner implements CommandLineRunner {
 
     private final QuantAnalysisService quantAnalysisService;
     private final SyntheticTickGenerator syntheticTickGenerator;
-    private final MarketStatusService marketStatusService;
+    private final MomentumMarketStatusService marketStatusService;
 
     @Override
     public void run(String... args) throws Exception {

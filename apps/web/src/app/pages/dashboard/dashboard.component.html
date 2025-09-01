@@ -16,11 +16,12 @@
 
         <div class="panel price-panel">
           <div class="price-value">
-            {{ nowLtp === null ? '—' : (nowLtp | number:'1.2-2') }}
+            {{ (futLtp$ | async) === null ? '—' : ((futLtp$ | async) | number:'1.2-2') }}
           </div>
-          <small *ngIf="ltpSource==='live'"><span class="dot dot-live"></span>Live</small>
-          <small *ngIf="ltpSource==='influx'"><span class="dot dot-influx"></span>Last saved</small>
-          <span class="chip-live" *ngIf="marketOpen === false">Market Closed</span>
+          <small [ngClass]="(mode$ | async)==='LIVE' ? 'dot-live' : 'dot-influx'">
+            {{ mode$ | async }}
+          </small>
+          <small>Last tick {{ lastTickAge$ | async }}s ago</small>
           <div class="muted">24h <span class="rise">+0.68%</span></div>
         </div>
 
