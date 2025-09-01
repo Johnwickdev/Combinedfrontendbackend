@@ -11,6 +11,7 @@ import com.influxdb.client.WriteApiBlocking;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.write.Point;
 import com.trader.backend.entity.NseInstrument;
+import com.trader.backend.state.MarketState;
 import com.upstox.marketdatafeederv3udapi.rpc.proto.MarketDataFeed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -70,7 +71,7 @@ public class LiveFeedService {
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
     private final QuantAnalysisService quantAnalysisService;
-    private final MarketStatusService marketStatusService;
+    private final MarketState marketState;
     @Value("${app.mock:false}")
     private boolean mockMode;
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
@@ -120,7 +121,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     }
 
     public boolean isConnected() { return connected.get(); }
-    public boolean isWsConnected() { return connected.get(); }
+    public boolean isWsConnected() { return marketState.isWsConnected(); }
     public Instant lastTickTs() { return lastTickTs.get(); }
     public long ticksLast60s() { return ticksLast60s.get(); }
     public boolean futSubscribed() { return futSubscribed.get(); }
@@ -497,12 +498,27 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
         client.execute(URI.create(wsUrl), session ->
                 session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(subFrame))))
-                        .doOnSuccess(v -> log.info("▶︎ Nifty options subscription frame sent"))
+                        .doOnSuccess(v -> {
+                            log.info("▶︎ Nifty options subscription frame sent");
+                            if (connected.compareAndSet(false, true)) {
+                                if (everConnected.getAndSet(true)) {
+                                    log.info("LIVE RECONNECTED");
+                                }
+                                log.info("LIVE CONNECTED");
+                            }
+                            marketState.setWsConnected(true);
+                        })
                         .thenMany(session.receive()
                                 .map(WebSocketMessage::getPayload)
                                 .map(this::parseProtoFeedResponse)
                                 .doOnNext(local::tryEmitNext)
                                 .doOnSubscribe(s -> log.info("📡 Subscribed to Nifty options WebSocket feed"))
+                                .doFinally(sig -> {
+                                    if (connected.getAndSet(false)) {
+                                        log.info("LIVE DISCONNECTED");
+                                    }
+                                    marketState.setWsConnected(false);
+                                })
 
                         )
                         .then()
@@ -738,7 +754,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         logLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
                         lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
-                        marketStatusService.onTick(ts);
+                        marketState.setLastTickTs(ts);
                         bufferOptionTick(instrumentKey, feed, ts, ltp);
 
                         if (selectionComputed.compareAndSet(false, true)) {
@@ -786,6 +802,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                            log.info("LIVE CONNECTED (subs={})", total);
                        }
                        optSubscribedCount.set(subsCount);
+                       marketState.setWsConnected(true);
                    })
                    .thenMany(session.receive()
                            .map(WebSocketMessage::getPayload)
@@ -796,6 +813,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                                    log.info("LIVE DISCONNECTED");
                                }
                                optSubscribedCount.set(0);
+                               marketState.setWsConnected(false);
                            }))
                    .then()
     ).subscribe();
@@ -853,6 +871,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
         lastTick.clear();
         optionBuffers.clear();
         connected.set(false);
+        marketState.setWsConnected(false);
         futSubscribed.set(false);
         optSubscribedCount.set(0);
     }
