@@ -14,7 +14,7 @@
 
     <groupId>com.trader</groupId>
     <artifactId>backend</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
     <name>backend</name>
 
     <properties>
@@ -244,6 +244,10 @@
                 <maven.test.skip>true</maven.test.skip>   <!-- prevents test compile & run -->
                 <skipTests>true</skipTests>               <!-- redundant but harmless -->
             </properties>
+        </profile>
+        <profile>
+            <id>offline-ready</id>
+            <properties/>
         </profile>
     </profiles>
 </project>

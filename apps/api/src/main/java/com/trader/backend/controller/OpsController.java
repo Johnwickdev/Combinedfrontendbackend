@@ -82,11 +82,11 @@ public class OpsController {
     @GetMapping("/ops/upstox-balance")
     public Mono<ResponseEntity<Map<String, Object>>> upstoxBalance() {
         return upstoxAuthService.fetchBalance()
-                .map(bal -> ResponseEntity.ok(Map.of("balance", bal)))
+                .map(bal -> ResponseEntity.ok(Map.<String, Object>of("balance", bal)))
                 .onErrorResume(ResponseStatusException.class, e -> {
                     if (e.getStatusCode() == HttpStatus.UNAUTHORIZED) {
                         return Mono.just(ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                                .body(Map.of("error", "unauthorized")));
+                                .body(Map.<String, Object>of("error", "unauthorized")));
                     }
                     return Mono.error(e);
                 });
