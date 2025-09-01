@@ -10,9 +10,8 @@ import { TrustBarComponent } from './components/trust-bar/trust-bar.component';
 import { SectorTradesComponent } from './sector-trades.component';
 import { AuthService } from '../../services/auth.service';
 import { formatCountdown } from '../../utils/time';
-import { MarketDataService } from '../../services/market-data.service';
 import { AccountService } from '../../services/account.service';
-import { Subscription } from 'rxjs';
+import { DataSourceFacade } from '../../services/data-source.facade';
 
 @Component({
   selector: 'app-dashboard',
@@ -44,16 +43,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
   remaining = 0;
   polling: any;
   private countdown: any;
-  private ltpInterval: any;
-  nowLtp: number | null = null;
-  ltpTs?: string;
-  ltpSource?: 'live' | 'influx';
-  marketOpen?: boolean;
-  mainInstrument: string | null = null;
 
-  private tickSub?: Subscription;
+  mode$ = this.facade.mode$;
+  lastTickAge$ = this.facade.lastTickAge$;
+  futLtp$ = this.facade.futLtp$;
 
-  constructor(private auth: AuthService, private marketData: MarketDataService, private account: AccountService) {}
+  constructor(private auth: AuthService, private account: AccountService, private facade: DataSourceFacade) {}
 
   ngOnInit() {
     this.checkStatus();
@@ -66,29 +61,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
         }
       }
     }, 1000);
-    const stored = localStorage.getItem('mainInstrumentKey');
-    if (stored) {
-      this.initializeInstrument(stored);
-    } else {
-      this.marketData.getSelection().subscribe({
-        next: sel => {
-          if (sel?.mainInstrument) {
-            localStorage.setItem('mainInstrumentKey', sel.mainInstrument);
-            this.initializeInstrument(sel.mainInstrument);
-          } else {
-            this.initializeInstrument('NSE_FO|64103');
-          }
-        },
-        error: () => this.initializeInstrument('NSE_FO|64103'),
-      });
-    }
+    this.facade.init();
   }
 
   ngOnDestroy() {
     clearInterval(this.polling);
     clearInterval(this.countdown);
-    clearInterval(this.ltpInterval);
-    this.tickSub?.unsubscribe();
   }
 
   private checkStatus() {
@@ -119,44 +97,5 @@ export class DashboardComponent implements OnInit, OnDestroy {
   formatRemaining() {
     return formatCountdown(this.remaining);
   }
-
-  private initializeInstrument(key: string) {
-    this.mainInstrument = key;
-    this.startLtpPolling();
-    this.tickSub = this.marketData.listenTicks().subscribe(tick => {
-      if (tick.instrumentKey === this.mainInstrument && tick.ltp != null) {
-        this.nowLtp = tick.ltp;
-        this.ltpSource = 'live';
-        this.ltpTs = new Date().toISOString();
-      }
-    });
-  }
-
-  private startLtpPolling() {
-    const load = () => {
-      if (!this.mainInstrument) return;
-      this.marketData.getLtp(this.mainInstrument).subscribe({
-        next: r => {
-          if (!r || r.ltp == null) {
-            this.nowLtp = null;
-            this.ltpSource = undefined;
-            this.ltpTs = undefined;
-            return;
-          }
-          this.nowLtp = r.ltp;
-          this.ltpSource = r.source;
-          this.ltpTs = r.ts;
-        },
-        error: () => {
-          this.nowLtp = null;
-          this.ltpSource = undefined;
-          this.ltpTs = undefined;
-        },
-      });
-    };
-    load();
-    this.ltpInterval = setInterval(load, 5000);
-  }
-
 
 }
