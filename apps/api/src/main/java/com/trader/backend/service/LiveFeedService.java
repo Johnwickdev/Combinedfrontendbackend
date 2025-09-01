@@ -70,6 +70,7 @@ public class LiveFeedService {
     private final ObjectMapper om = new ObjectMapper();
     private final MongoTemplate mongoTemplate;
     private final QuantAnalysisService quantAnalysisService;
+    private final MarketStatusService marketStatusService;
     @Value("${app.mock:false}")
     private boolean mockMode;
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
@@ -119,6 +120,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     }
 
     public boolean isConnected() { return connected.get(); }
+    public boolean isWsConnected() { return connected.get(); }
     public Instant lastTickTs() { return lastTickTs.get(); }
     public long ticksLast60s() { return ticksLast60s.get(); }
     public boolean futSubscribed() { return futSubscribed.get(); }
@@ -736,6 +738,7 @@ public void streamNiftyFutAndTriggerCEPE() {
                         logLtp(instrumentKey, ltp, ts);
                         writeTickToInflux(instrumentKey, feed, ts);
                         lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
+                        marketStatusService.onTick(ts);
                         bufferOptionTick(instrumentKey, feed, ts, ltp);
 
                         if (selectionComputed.compareAndSet(false, true)) {
