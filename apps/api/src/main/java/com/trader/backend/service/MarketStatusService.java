@@ -1,26 +1,33 @@
 package com.trader.backend.service;
 
-import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
+import com.trader.backend.util.TradingHoursUtil;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Derives a coarse market status (bullish, bearish, neutral) from
- * futures quantitative analysis results. This helps summarize the
- * broader market direction during mock runs.
+ * Tracks live market connection state and last tick timestamp.
  */
-@Component
-@Profile("mock")
+@Service
+@RequiredArgsConstructor
 public class MarketStatusService {
 
-    private static final double THRESHOLD = 0.0005; // 0.05%
+    private final LiveFeedService liveFeedService;
+    private final AtomicLong lastTickTs = new AtomicLong(0);
 
-    public MarketStatus determine(QuantAnalysisService.QuantAnalysisResult futuresResult) {
-        double m = futuresResult.momentum();
-        if (m > THRESHOLD) return MarketStatus.BULLISH;
-        if (m < -THRESHOLD) return MarketStatus.BEARISH;
-        return MarketStatus.NEUTRAL;
+    public void onTick(long ts) {
+        lastTickTs.set(ts);
     }
 
-    public enum MarketStatus { BULLISH, BEARISH, NEUTRAL }
-}
+    public Status getStatus() {
+        boolean wsConnected = liveFeedService.isWsConnected();
+        boolean open = TradingHoursUtil.isMarketOpen(Instant.now());
+        boolean online = open && wsConnected;
+        String reason = online ? "" : (open ? "ws-disconnected" : "market-closed");
+        return new Status(online, wsConnected, lastTickTs.get(), reason);
+    }
 
+    public record Status(boolean online, boolean wsConnected, long lastTickTs, String reason) {}
+}

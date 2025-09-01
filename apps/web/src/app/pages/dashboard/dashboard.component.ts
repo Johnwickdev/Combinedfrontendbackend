@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TopbarComponent } from './components/topbar/topbar.component';
 import { SideRailComponent } from './components/side-rail/side-rail.component';
@@ -10,9 +10,10 @@ import { TrustBarComponent } from './components/trust-bar/trust-bar.component';
 import { SectorTradesComponent } from './sector-trades.component';
 import { AuthService } from '../../services/auth.service';
 import { formatCountdown } from '../../utils/time';
-import { MarketDataService } from '../../services/market-data.service';
 import { AccountService } from '../../services/account.service';
-import { Subscription } from 'rxjs';
+import { DataSourceFacade } from '../../services/data-source.facade';
+import { Observable } from 'rxjs';
+import { Ohlc } from '../../models/ohlc.model';
 
 @Component({
   selector: 'app-dashboard',
@@ -44,16 +45,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   remaining = 0;
   polling: any;
   private countdown: any;
-  private ltpInterval: any;
-  nowLtp: number | null = null;
-  ltpTs?: string;
-  ltpSource?: 'live' | 'influx';
-  marketOpen?: boolean;
-  mainInstrument: string | null = null;
 
-  private tickSub?: Subscription;
-
-  constructor(private auth: AuthService, private marketData: MarketDataService, private account: AccountService) {}
+  private auth = inject(AuthService);
+  private account = inject(AccountService);
+  readonly facade = inject(DataSourceFacade);
 
   ngOnInit() {
     this.checkStatus();
@@ -66,29 +61,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
         }
       }
     }, 1000);
-    const stored = localStorage.getItem('mainInstrumentKey');
-    if (stored) {
-      this.initializeInstrument(stored);
-    } else {
-      this.marketData.getSelection().subscribe({
-        next: sel => {
-          if (sel?.mainInstrument) {
-            localStorage.setItem('mainInstrumentKey', sel.mainInstrument);
-            this.initializeInstrument(sel.mainInstrument);
-          } else {
-            this.initializeInstrument('NSE_FO|64103');
-          }
-        },
-        error: () => this.initializeInstrument('NSE_FO|64103'),
-      });
-    }
+    this.facade.init();
   }
 
   ngOnDestroy() {
     clearInterval(this.polling);
     clearInterval(this.countdown);
-    clearInterval(this.ltpInterval);
-    this.tickSub?.unsubscribe();
   }
 
   private checkStatus() {
@@ -120,43 +98,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
     return formatCountdown(this.remaining);
   }
 
-  private initializeInstrument(key: string) {
-    this.mainInstrument = key;
-    this.startLtpPolling();
-    this.tickSub = this.marketData.listenTicks().subscribe(tick => {
-      if (tick.instrumentKey === this.mainInstrument && tick.ltp != null) {
-        this.nowLtp = tick.ltp;
-        this.ltpSource = 'live';
-        this.ltpTs = new Date().toISOString();
-      }
-    });
-  }
-
-  private startLtpPolling() {
-    const load = () => {
-      if (!this.mainInstrument) return;
-      this.marketData.getLtp(this.mainInstrument).subscribe({
-        next: r => {
-          if (!r || r.ltp == null) {
-            this.nowLtp = null;
-            this.ltpSource = undefined;
-            this.ltpTs = undefined;
-            return;
-          }
-          this.nowLtp = r.ltp;
-          this.ltpSource = r.source;
-          this.ltpTs = r.ts;
-        },
-        error: () => {
-          this.nowLtp = null;
-          this.ltpSource = undefined;
-          this.ltpTs = undefined;
-        },
-      });
-    };
-    load();
-    this.ltpInterval = setInterval(load, 5000);
-  }
-
+  get mode$(): Observable<'LIVE' | 'HISTORIC'> { return this.facade.mode$; }
+  get lastTickAge$(): Observable<number> { return this.facade.lastTickAge$; }
+  get futLtp$(): Observable<number | null> { return this.facade.futLtp$; }
+  get ceOhlc$(): Observable<Ohlc[]> { return this.facade.ceOhlc$; }
+  get peOhlc$(): Observable<Ohlc[]> { return this.facade.peOhlc$; }
 
 }
