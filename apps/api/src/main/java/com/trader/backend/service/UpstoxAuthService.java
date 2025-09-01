@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -16,6 +17,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.Base64;
 
 import javax.annotation.PostConstruct;
@@ -294,9 +296,9 @@ public class UpstoxAuthService {
     /** Fetch the user's available cash balance from Upstox. */
     public Mono<Double> fetchBalance() {
         String token = accessToken.get();
-        if (token == null) {
+        if (token == null || token.isBlank()) {
             log.warn("Access-token not ready. Hit /auth/exchange first.");
-            return Mono.just(0.0);
+            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized"));
         }
 
         return webClient.get()
@@ -304,6 +306,11 @@ public class UpstoxAuthService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .retrieve()
+                .onStatus(status -> status.value() == 401,
+                        resp -> {
+                            log.warn("Upstox API responded 401 for balance fetch");
+                            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized"));
+                        })
                 .bodyToMono(JsonNode.class)
                 .map(j -> j.at("/data/equity/available_margin").asDouble(0.0));
     }
