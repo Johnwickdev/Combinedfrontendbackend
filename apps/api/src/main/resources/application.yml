@@ -1,0 +1,5 @@
+signals:
+  maxLevels: 5
+  windowMs: 100
+  persistMs: 800
+  enabled: true

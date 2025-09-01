@@ -72,6 +72,7 @@ public class LiveFeedService {
     private final MongoTemplate mongoTemplate;
     private final QuantAnalysisService quantAnalysisService;
     private final MarketState marketState;
+    private final DepthMetricsService depthMetricsService;
     @Value("${app.mock:false}")
     private boolean mockMode;
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
@@ -623,6 +624,8 @@ public void streamFilteredNiftyOptions() {
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
                     bufferOptionTick(instrumentKey, feed, ts, ltp);
 
+                    depthMetricsService.onFeed(instrumentKey, feed, ltp, Instant.ofEpochMilli(ts));
+
                     var result = quantAnalysisService.analyze(instrumentKey, feed);
                     if (result.signal() != QuantAnalysisService.Signal.NONE) {
                         log.info("🎯 {} for {} → momentum={} volSpike={} imbalance={} noise={}",
@@ -677,9 +680,11 @@ JsonNode ltpNode = tick.path("feeds")
                     long ts = extractTimestamp(tick.path("feeds").path(instrumentKey), tick);
                     logLtp(instrumentKey, ltp, ts);
                     ltpSink.tryEmitNext(new LtpEvent(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
-                    writeTickToInflux(instrumentKey, tick.path("feeds").path(instrumentKey), ts);
+                    JsonNode singleFeed = tick.path("feeds").path(instrumentKey);
+                    writeTickToInflux(instrumentKey, singleFeed, ts);
                     lastTick.put(instrumentKey, new Tick(instrumentKey, ltp, Instant.ofEpochMilli(ts)));
-                    bufferOptionTick(instrumentKey, tick.path("feeds").path(instrumentKey), ts, ltp);
+                    bufferOptionTick(instrumentKey, singleFeed, ts, ltp);
+                    depthMetricsService.onFeed(instrumentKey, singleFeed, ltp, Instant.ofEpochMilli(ts));
                 }
 
                 sink.tryEmitNext(tick);

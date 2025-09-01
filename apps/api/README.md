@@ -30,3 +30,24 @@ frontend. The current value can be retrieved from the backend at
 For CORS, adjust the `cors.allowedOrigins` property if you need to allow
 additional origins. By default it allows the deployed Vercel domain and
 `http://localhost:4200` for local development.
+
+## DBI5 Signal Engine
+
+The backend aggregates the top-five bid and ask levels to compute a Depth
+Bid-Ask Imbalance (DBI5) value. When this imbalance persists for 800 ms and
+exceeds configured thresholds, a `BUY_CE` or `BUY_PE` signal is emitted with
+suggested stop-loss and take-profit prices.
+
+### Streaming signals
+
+Signals are exposed as Server Sent Events:
+
+```bash
+curl http://localhost:8080/signals/live
+```
+
+Each event payload has the schema:
+
+```json
+{"ts":"2025-09-01T19:19:58.252806Z","symbol":"TEST","side":"BUY_CE","dbi":2.0,"sl":85.0,"tp":125.0}
+```
