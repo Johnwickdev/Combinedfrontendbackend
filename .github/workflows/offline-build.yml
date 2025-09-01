@@ -1,0 +1,44 @@
+name: Offline Maven Build
+
+on:
+  push:
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/offline-build.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/offline-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+      - name: Prime dependencies
+        run: ./mvnw -B -DskipTests dependency:go-offline
+      - name: Build offline
+        run: ./mvnw -q -o -Poffline-ready -DskipTests package
+      - name: Start application
+        run: |
+          java -jar target/*.jar &
+          echo $! > build.pid
+          sleep 15
+      - name: Curl upstox balance
+        run: curl -i http://localhost:8080/ops/upstox-balance || true
+      - name: Stop application
+        if: always()
+        run: |
+          kill $(cat build.pid) || true
