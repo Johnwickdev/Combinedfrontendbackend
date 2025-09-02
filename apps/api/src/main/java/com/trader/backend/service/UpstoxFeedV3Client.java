@@ -4,16 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.trader.backend.service.Tick;
+import com.trader.backend.events.TickEvent;
 import com.upstox.marketdatafeederv3udapi.rpc.proto.MarketDataFeed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
+import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -24,11 +26,9 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,9 +38,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 @RequiredArgsConstructor
 public class UpstoxFeedV3Client {
-
     private final UpstoxAuthService auth;
-
+    private final ApplicationEventPublisher publisher;
+    private final MarketStatusService marketStatusService;
     @Value("${FEED_V3_MODE:ltpc}")
     private String mode;
 
@@ -51,7 +51,8 @@ public class UpstoxFeedV3Client {
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicReference<String> lastError = new AtomicReference<>(null);
     private final Map<String, Tick> latest = new ConcurrentHashMap<>();
-    private List<String> symbols = new ArrayList<>();
+    private final Set<String> symbols = ConcurrentHashMap.newKeySet();
+    private final AtomicReference<WebSocketSession> sessionRef = new AtomicReference<>();
 
     @PostConstruct
     void start() {
@@ -64,6 +65,7 @@ public class UpstoxFeedV3Client {
             }
         }
         if (!symbols.isEmpty()) {
+            log.info("[sub] added key={} mode={} (startup)", symbols, mode);
             connectLoop();
         } else {
             log.warn("No TICK_SYMBOLS configured; Upstox feed will not start");
@@ -72,9 +74,30 @@ public class UpstoxFeedV3Client {
 
     public boolean isConnected() { return connected.get(); }
     public String mode() { return mode; }
-    public List<String> symbols() { return Collections.unmodifiableList(symbols); }
+    public Set<String> symbols() { return Collections.unmodifiableSet(symbols); }
     public String lastError() { return lastError.get(); }
-    public Map<String, Tick> latestTicks() { return new LinkedHashMap<>(latest); }
+    public Map<String, Tick> latestTicks() { return new ConcurrentHashMap<>(latest); }
+
+    public void subscribe(String key) {
+        if (symbols.contains(key)) {
+            log.info("[sub] already-subscribed key={}", key);
+            return;
+        }
+        symbols.add(key);
+        WebSocketSession session = sessionRef.get();
+        if (session != null) {
+            ObjectNode frame = om.createObjectNode();
+            frame.put("guid", UUID.randomUUID().toString());
+            frame.put("method", "sub");
+            ObjectNode data = frame.putObject("data");
+            data.put("mode", mode);
+            ArrayNode arr = data.putArray("instrumentKeys");
+            arr.add(key);
+            byte[] b = frame.toString().getBytes(StandardCharsets.UTF_8);
+            session.send(Mono.just(session.binaryMessage(f -> f.wrap(b)))).subscribe();
+            log.info("[sub] added key={} mode={}", key, mode);
+        }
+    }
 
     private void connectLoop() {
         authorizeAndConnect()
@@ -115,30 +138,32 @@ public class UpstoxFeedV3Client {
         ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 
         return client.execute(URI.create(wsUrl), session -> {
+            sessionRef.set(session);
             // sender: send subscribe frame once
             Mono<Void> sender = session.send(
                     Mono.just(session.binaryMessage(factory -> factory.wrap(frame)))
             );
 
-            // receiver: consume messages, collapse Flux to Mono<Void>
+            // receiver
             Mono<Void> receiver = session.receive()
                     .doOnSubscribe(s -> {
                         connected.set(true);
                         lastError.set(null);
+                        marketStatusService.setWsConnected(true);
                         log.info("[ws] v3 authorized and connected");
                     })
                     .map(WebSocketMessage::getPayload)
                     .doOnNext(this::handlePayload)
-                    .then() // important: convert Flux<?> to Mono<Void>
+                    .then()
                     .doFinally(sig -> session.closeStatus()
                             .doOnNext(cs -> {
                                 connected.set(false);
+                                marketStatusService.setWsConnected(false);
                                 log.info("[ws] closed code={} reason={}", cs.getCode(), cs.getReason());
                             })
                             .subscribe()
                     );
 
-            // return Mono<Void>
             return Mono.when(sender, receiver);
         });
     }
@@ -162,7 +187,8 @@ public class UpstoxFeedV3Client {
             buf.read(b);
             MarketDataFeed.FeedResponse resp = MarketDataFeed.FeedResponse.parseFrom(b);
             if (resp.getType() == MarketDataFeed.Type.market_info) {
-                log.info("market_info: {}", resp.getMarketInfo().getSegmentStatusMap());
+                boolean open = "OPEN".equalsIgnoreCase(resp.getMarketInfo().getSegmentStatusMap().getOrDefault("NSE_FO", ""));
+                marketStatusService.onMarketInfo(open);
                 return;
             }
             resp.getFeedsMap().forEach((key, feed) -> {
@@ -187,7 +213,9 @@ public class UpstoxFeedV3Client {
                     ts = feed.getFirstLevelWithGreeks().getLtpc().getLtt();
                 }
                 Instant tsInstant = Instant.ofEpochMilli(ts);
-                latest.put(key, new Tick(key, price, tsInstant));
+                Tick t = new Tick(key, price, tsInstant);
+                latest.put(key, t);
+                publisher.publishEvent(new TickEvent(key, price, tsInstant));
                 log.info("[tick] {} ltp={} ts={}", key, price, tsInstant);
             });
         } catch (Exception e) {
