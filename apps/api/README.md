@@ -1,5 +1,13 @@
 # backendforautobot
 
+## DBI5 STANDARD FLOW
+This backend implements a self-sufficient market feed. On startup it loads NSE instruments, connects to Upstox V3 and derives ATM option selections from live NIFTY future ticks.
+Endpoints:
+- `GET /status/market` — market online status
+- `GET /ws/status` — websocket diagnostics
+- `GET /ltp/nifty-fut` and `GET /ltp/options-atm` — latest prices
+The flow and endpoints are stable and should be extended, not altered, in future tasks.
+
 - Auto-refreshes weekly NIFTY options after expiry and includes NIFTY future in live feed.
 
 ## Logging
