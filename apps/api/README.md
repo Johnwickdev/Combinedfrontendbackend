@@ -19,6 +19,17 @@ configure the following environment variables:
 You can also set `LOG_DIR` to change the directory where local log files are
 stored (defaults to `logs`).
 
+## WebSocket diagnostics
+
+Set the environment variable `WS_DEBUG=true` to enable verbose TLS and Netty
+wire logging for the Upstox WebSocket client. When enabled, run the JVM with
+`-Djavax.net.debug=ssl,handshake` for detailed handshake traces.
+
+On Railway, add `WS_DEBUG` in the service's environment variable settings.
+If your base image lacks CA certificates, install the `ca-certificates`
+package (Alpine) or use a JRE image that includes a populated `cacerts`
+trust store.
+
 ## Authentication
 
 The frontend dashboard URL used after a successful Upstox login can be
