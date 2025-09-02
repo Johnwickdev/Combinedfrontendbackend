@@ -8,7 +8,6 @@ PROJECT_ROOT="$SCRIPT_DIR/.."
 cd "$PROJECT_ROOT"
 echo "Priming Maven cache..."
 ./mvnw -q -f apps/api/pom.xml help:effective-settings | sed -n '/<localRepository>/,/<\/localRepository>/p'
-./mvnw -B -DskipTests -Poffline-ready -f apps/api/pom.xml -pl :backend -am dependency:go-offline
 ./mvnw -B -DskipTests -Poffline-ready -f apps/api/pom.xml -pl :backend -am package
 echo "Verifying required artifacts..."
 ls -la "$HOME/.m2/repository/io/netty/netty-common/4.1.109.Final/"
