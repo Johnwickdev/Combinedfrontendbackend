@@ -3,3 +3,14 @@ signals:
   windowMs: 100
   persistMs: 800
   enabled: true
+lwp:
+  enabled: true
+  windowMs: 100
+  reappearWindowMs: 400
+  persistenceCount: 3
+  persistActiveMs: 800
+  wallThreshold: 5.0
+  maxLevels: 5
+sim:
+  enabled: true
+  dataset: classpath:/ticks/lwp_synthetic.json
