@@ -26,6 +26,11 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.util.retry.Retry;
+import reactor.netty.http.client.HttpClient;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLParameters;
 
 import javax.annotation.PostConstruct;
 import java.net.URI;
@@ -54,8 +59,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import com.trader.backend.events.LtpEvent;
+
+import java.security.KeyStore;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 
 
 @Service
@@ -101,6 +114,11 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private final AtomicInteger peLoadedCount = new AtomicInteger(0);
     private final AtomicLong currentExpiryMs = new AtomicLong(0);
 
+    private final boolean wsDebug = Boolean.parseBoolean(System.getenv().getOrDefault("WS_DEBUG", "false"));
+    private final AtomicReference<String> lastError = new AtomicReference<>(null);
+    private final AtomicReference<Instant> lastConnectTs = new AtomicReference<>(null);
+    private final AtomicReference<String> lastCloseReason = new AtomicReference<>(null);
+
     public Optional<Tick> getLatestTick(String key) {
         return Optional.ofNullable(lastTick.get(key));
     }
@@ -127,6 +145,10 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     public long ticksLast60s() { return ticksLast60s.get(); }
     public boolean futSubscribed() { return futSubscribed.get(); }
     public int optSubscribedCount() { return optSubscribedCount.get(); }
+    public String lastError() { return lastError.get(); }
+    public Instant lastConnectTs() { return lastConnectTs.get(); }
+    public String lastCloseReason() { return lastCloseReason.get(); }
+    public Map<String, Tick> latestTicks() { return new LinkedHashMap<>(lastTick); }
 
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
@@ -148,6 +170,32 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
      **/
     public Flux<JsonNode> stream() {
         return sink.asFlux();
+    }
+
+    @PostConstruct
+    void logTrustStoreInfo() {
+        String ts = System.getProperty("javax.net.ssl.trustStore");
+        if (ts == null || ts.isBlank()) {
+            ts = System.getProperty("java.home") + "/lib/security/cacerts";
+        }
+        try (InputStream in = new FileInputStream(ts)) {
+            KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+            ks.load(in, "changeit".toCharArray());
+            log.info("Trust store: {} ({} CAs)", ts, ks.size());
+        } catch (Exception e) {
+            log.warn("Unable to read trust store at {}", ts, e);
+        }
+        if (wsDebug) {
+            try {
+                java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+                HttpRequest req = HttpRequest.newBuilder(URI.create("https://repo1.maven.org"))
+                        .GET().build();
+                client.send(req, HttpResponse.BodyHandlers.discarding());
+                log.info("TLS check to repo1.maven.org succeeded");
+            } catch (Exception e) {
+                log.error("TLS check to repo1.maven.org failed", e);
+            }
+        }
     }
     @PostConstruct
     public void subscribeToAuthEvents() {
@@ -293,35 +341,72 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
      * STEP 6.1: fetch the actual WS URL (handles redirect or JSON token)
      **/
     public Mono<String> fetchWebSocketUrl() {
-        log.info("⟳ entering fetchWebSocketUrl(), current token={}", auth.currentToken());
-        return WebClient.builder()
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + auth.currentToken())
-                .build()
-                .get()
-                .uri("https://api.upstox.com/v3/feed/market-data-feed/authorize")
-                .exchangeToMono(resp -> {
-                    // 1) if they give a redirect, just grab it
-                    if (resp.statusCode().is3xxRedirection()) {
-                        String redirect = resp.headers()
-                                .asHttpHeaders()
-                                .getLocation()
-                                .toString();
-                        return Mono.just(redirect);
-                    }
+        String wsUrl = "wss://api-v2.upstox.com/feed";
+        log.info("▶︎ connecting to WS at {}", wsUrl);
+        return Mono.just(wsUrl);
+    }
 
+    private ReactorNettyWebSocketClient createWsClient() {
+        HttpClient http = HttpClient.create();
+        if (wsDebug) {
+            http = http.wiretap(true);
+        }
+        return new ReactorNettyWebSocketClient(http);
+    }
 
-                    return resp.bodyToMono(JsonNode.class)
-                            .flatMap(j -> {
-                                log.debug("→ /authorize JSON payload: {}", j);
-                                // pull out the wss:// URI directly
-                                JsonNode data = j.path("data");
-                                String wsUrl = data.has("authorizedRedirectUri")
-                                        ? data.get("authorizedRedirectUri").asText()
-                                        : data.get("authorized_redirect_uri").asText();
-                                log.info("▶︎ connecting to WS at {}", wsUrl);
-                                return Mono.just(wsUrl);
-                            });
-                });
+    private HttpHeaders createWsHeaders() {
+        HttpHeaders h = new HttpHeaders();
+        String token = auth.currentToken();
+        if (token != null) {
+            h.set(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+        }
+        h.set(HttpHeaders.USER_AGENT, "trader-backend/1.0");
+        h.set(HttpHeaders.CONNECTION, "Upgrade");
+        h.set(HttpHeaders.UPGRADE, "websocket");
+        h.set("Sec-WebSocket-Version", "13");
+        if (wsDebug) {
+            HttpHeaders logHeaders = new HttpHeaders();
+            logHeaders.addAll(h);
+            if (logHeaders.containsKey(HttpHeaders.AUTHORIZATION)) {
+                logHeaders.set(HttpHeaders.AUTHORIZATION, "Bearer ****");
+            }
+            log.info("WS headers: {}", logHeaders);
+        }
+        return h;
+    }
+
+    private void logWsError(Throwable t, String wsUrl) {
+        Throwable root = Exceptions.unwrap(t);
+        String host = URI.create(wsUrl).getHost();
+        String msg = root.getMessage();
+        String cls = root.getClass().getSimpleName();
+        lastError.set(cls + ": " + msg);
+        if (root instanceof SSLException se) {
+            try {
+                SSLContext ctx = SSLContext.getDefault();
+                SSLParameters params = ctx.getSupportedSSLParameters();
+                log.error("WS connect SSL error host={} msg={} prot={} cipher={}", host, msg,
+                        String.join(" ", params.getProtocols()),
+                        String.join(" ", params.getCipherSuites()),
+                        se);
+            } catch (Exception e) {
+                log.error("WS connect SSL error host={} msg={} (failed to fetch SSL params)", host, msg, se);
+            }
+        } else {
+            log.error("WS connect error host={} msg={} class={}", host, msg, cls, root);
+        }
+    }
+
+    private Retry retrySpec() {
+        long[] delays = {1,2,5,10,20,30};
+        return Retry.from(companion -> companion
+                .zipWith(Flux.range(0, Integer.MAX_VALUE), (sig, idx) -> idx)
+                .flatMap(i -> {
+                    long base = delays[Math.min(i, delays.length - 1)];
+                    long jitter = (long)(base * 0.25);
+                    long actual = base - jitter + ThreadLocalRandom.current().nextLong(jitter * 2 + 1);
+                    return Mono.delay(Duration.ofSeconds(actual));
+                }));
     }
 
 
@@ -332,21 +417,28 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
             """.getBytes(StandardCharsets.UTF_8);
 
     private Flux<JsonNode> openWebSocket(String wsUrl) {
-        ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+        ReactorNettyWebSocketClient client = createWsClient();
+        HttpHeaders headers = createWsHeaders();
         Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
 
-        client.execute(URI.create(wsUrl), session ->
-                // 1) send our JSON-as-binary SUB_FRAME
+        client.execute(URI.create(wsUrl), headers, session ->
                 session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(SUB_FRAME))))
-                        .doOnSuccess(v -> log.info("▶︎ subscribe frame sent"))
-                        // 2) then receive raw protobuf frames and parse them
+                        .doOnSuccess(v -> {
+                            log.info("▶︎ subscribe frame sent");
+                            lastConnectTs.set(Instant.now());
+                            lastError.set(null);
+                        })
                         .thenMany(session.receive()
-                                .map(WebSocketMessage::getPayload)           // DataBuffer
-                                .map(this::parseProtoFeedResponse)           // FeedResponse → JsonNode
+                                .map(WebSocketMessage::getPayload)
+                                .map(this::parseProtoFeedResponse)
                                 .doOnNext(local::tryEmitNext)
+                                .doFinally(sig -> session.closeStatus().doOnNext(cs -> {
+                                    log.info("WS closed code={} reason={}", cs.getCode(), cs.getReason());
+                                    lastCloseReason.set(cs.getCode() + ":" + cs.getReason());
+                                }).subscribe())
                         )
                         .then()
-        ).subscribe();
+        ).doOnError(t -> logWsError(t, wsUrl)).subscribe();
 
         return local.asFlux();
     }
@@ -494,13 +586,16 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
 
     public Flux<JsonNode> openWebSocketForOptions(String wsUrl, byte[] subFrame) {
-        ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+        ReactorNettyWebSocketClient client = createWsClient();
+        HttpHeaders headers = createWsHeaders();
         Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
 
-        client.execute(URI.create(wsUrl), session ->
+        client.execute(URI.create(wsUrl), headers, session ->
                 session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(subFrame))))
                         .doOnSuccess(v -> {
                             log.info("▶︎ Nifty options subscription frame sent");
+                            lastConnectTs.set(Instant.now());
+                            lastError.set(null);
                             if (connected.compareAndSet(false, true)) {
                                 if (everConnected.getAndSet(true)) {
                                     log.info("LIVE RECONNECTED");
@@ -519,11 +614,15 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                                         log.info("LIVE DISCONNECTED");
                                     }
                                     marketState.setWsConnected(false);
+                                    session.closeStatus().doOnNext(cs -> {
+                                        log.info("WS closed code={} reason={}", cs.getCode(), cs.getReason());
+                                        lastCloseReason.set(cs.getCode() + ":" + cs.getReason());
+                                    }).subscribe();
                                 })
 
                         )
                         .then()
-        ).subscribe();
+        ).doOnError(t -> logWsError(t, wsUrl)).subscribe();
 
         return local.asFlux();
     }
@@ -541,21 +640,28 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     }
     """.getBytes(StandardCharsets.UTF_8);
     private Flux<JsonNode> openOptionWebSocket(String wsUrl) {
-        ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+        ReactorNettyWebSocketClient client = createWsClient();
+        HttpHeaders headers = createWsHeaders();
         Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
 
-        client.execute(URI.create(wsUrl), session ->
-                // 1) send OPTION_SUB_FRAME instead of SUB_FRAME
+        client.execute(URI.create(wsUrl), headers, session ->
                 session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(OPTION_SUB_FRAME))))
-                        .doOnSuccess(v -> log.info("▶︎ option‐subscribe frame sent"))
-                        // 2) receive protobuf → JsonNode
+                        .doOnSuccess(v -> {
+                            log.info("▶︎ option‐subscribe frame sent");
+                            lastConnectTs.set(Instant.now());
+                            lastError.set(null);
+                        })
                         .thenMany(session.receive()
                                 .map(WebSocketMessage::getPayload)
                                 .map(this::parseProtoFeedResponse)
                                 .doOnNext(local::tryEmitNext)
+                                .doFinally(sig -> session.closeStatus().doOnNext(cs -> {
+                                    log.info("WS closed code={} reason={}", cs.getCode(), cs.getReason());
+                                    lastCloseReason.set(cs.getCode() + ":" + cs.getReason());
+                                }).subscribe())
                         )
                         .then()
-        ).subscribe();
+        ).doOnError(t -> logWsError(t, wsUrl)).subscribe();
 
         return local.asFlux();
     }
@@ -602,7 +708,7 @@ public void streamFilteredNiftyOptions() {
             return fetchWebSocketUrl();
         })
         .flatMapMany(wsUrl -> openWebSocketWithDynamicSub(wsUrl, () -> buildSubFrame(desired), desired.size()))
-        .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofSeconds(5)))
+        .retryWhen(retrySpec())
         .doOnSubscribe(s -> log.info("📡 Subscribed to filtered CE/PE (auto-resub on reconnect)"))
         .doOnNext(tick -> {
             sink.tryEmitNext(tick);
@@ -793,12 +899,15 @@ public void streamNiftyFutAndTriggerCEPE() {
  * Use this for dynamic lists that may change between reconnects.
  */
 private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.function.Supplier<byte[]> frameSupplier, int subsCount) {
-    ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+    ReactorNettyWebSocketClient client = createWsClient();
+    HttpHeaders headers = createWsHeaders();
     Sinks.Many<JsonNode> local = Sinks.many().multicast().onBackpressureBuffer();
 
-    client.execute(URI.create(wsUrl), session ->
+    client.execute(URI.create(wsUrl), headers, session ->
             session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(frameSupplier.get()))))
                    .doOnSuccess(v -> {
+                       lastConnectTs.set(Instant.now());
+                       lastError.set(null);
                        int total = subsCount + (futSubscribed.get() ? 1 : 0);
                        if (connected.compareAndSet(false, true)) {
                            if (everConnected.getAndSet(true)) {
@@ -819,9 +928,13 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
                                }
                                optSubscribedCount.set(0);
                                marketState.setWsConnected(false);
+                               session.closeStatus().doOnNext(cs -> {
+                                   log.info("WS closed code={} reason={}", cs.getCode(), cs.getReason());
+                                   lastCloseReason.set(cs.getCode() + ":" + cs.getReason());
+                               }).subscribe();
                            }))
                    .then()
-    ).subscribe();
+    ).doOnError(t -> logWsError(t, wsUrl)).subscribe();
 
     return local.asFlux();
 }
