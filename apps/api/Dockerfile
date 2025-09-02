@@ -6,10 +6,7 @@ COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 RUN chmod +x mvnw
 
-# Pre-fetch deps (faster, fewer network surprises)
-RUN ./mvnw -B -V -e -DskipFrontend=true -Dmaven.test.skip=true dependency:go-offline
-
-# Now copy sources and build
+# Copy sources and build
 COPY src ./src
 RUN ./mvnw -B -V -e clean package -DskipFrontend=true -Dmaven.test.skip=true -Pci
 
