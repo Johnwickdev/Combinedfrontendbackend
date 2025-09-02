@@ -16,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import reactor.core.publisher.Mono;
 
 import javax.annotation.PostConstruct;
@@ -112,22 +113,34 @@ public class UpstoxFeedV3Client {
     private Mono<Void> openWebSocket(String wsUrl) {
         byte[] frame = buildSubFrame();
         ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-        return client.execute(URI.create(wsUrl), session ->
-                session.send(Mono.just(session.binaryMessage(bb -> bb.wrap(frame))))
-                        .thenMany(session.receive()
-                                .map(WebSocketMessage::getPayload)
-                                .doOnSubscribe(s -> {
-                                    connected.set(true);
-                                    lastError.set(null);
-                                    log.info("[ws] v3 authorized and connected");
-                                })
-                                .doOnNext(this::handlePayload)
-                                .then())
-                        .doFinally(sig -> session.closeStatus().doOnNext(cs -> {
-                            connected.set(false);
-                            log.info("[ws] closed code={} reason={}", cs.getCode(), cs.getReason());
-                        }).subscribe())
-        );
+
+        return client.execute(URI.create(wsUrl), session -> {
+            // sender: send subscribe frame once
+            Mono<Void> sender = session.send(
+                    Mono.just(session.binaryMessage(factory -> factory.wrap(frame)))
+            );
+
+            // receiver: consume messages, collapse Flux to Mono<Void>
+            Mono<Void> receiver = session.receive()
+                    .doOnSubscribe(s -> {
+                        connected.set(true);
+                        lastError.set(null);
+                        log.info("[ws] v3 authorized and connected");
+                    })
+                    .map(WebSocketMessage::getPayload)
+                    .doOnNext(this::handlePayload)
+                    .then() // important: convert Flux<?> to Mono<Void>
+                    .doFinally(sig -> session.closeStatus()
+                            .doOnNext(cs -> {
+                                connected.set(false);
+                                log.info("[ws] closed code={} reason={}", cs.getCode(), cs.getReason());
+                            })
+                            .subscribe()
+                    );
+
+            // return Mono<Void>
+            return Mono.when(sender, receiver);
+        });
     }
 
     private byte[] buildSubFrame() {
@@ -179,6 +192,8 @@ public class UpstoxFeedV3Client {
             });
         } catch (Exception e) {
             log.error("Failed to parse feed", e);
+        } finally {
+            DataBufferUtils.release(buf);
         }
     }
 }
