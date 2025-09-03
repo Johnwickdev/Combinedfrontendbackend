@@ -32,8 +32,8 @@ public class ExpirySelectorService {
         this.mongoTemplate = null;
     }
 
-    public void ensureCurrentWeeklyExpiry() {
-        selectCurrentOptionExpiry(ZonedDateTime.now(IST));
+    public String ensureCurrentWeeklyExpiry() {
+        return selectCurrentOptionExpiry(ZonedDateTime.now(IST)).toString();
     }
 
     /**
@@ -68,12 +68,12 @@ public class ExpirySelectorService {
         return next;
     }
 
-    public LocalDate pickCurrentExpiry(ZonedDateTime nowIst) {
-        return selectCurrentOptionExpiry(nowIst);
-    }
-
-    public LocalDate pickCurrentExpiry(Instant nowUtc) {
-        return selectCurrentOptionExpiry(ZonedDateTime.ofInstant(nowUtc, IST));
+    /**
+     * Returns the current weekly expiry string given an Instant.
+     */
+    public String pickCurrentExpiry(Instant now) {
+        // Delegate to existing logic for determining the current weekly expiry
+        return ensureCurrentWeeklyExpiry();
     }
 
     /**

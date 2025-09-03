@@ -177,7 +177,8 @@ public class NseInstrumentService {
      * Triggers refreshFromNseJson() once if empty.
      */
     public synchronized boolean ensureOptionsLoaded(ZonedDateTime nowIst) {
-        LocalDate current = expirySelectorService.selectCurrentOptionExpiry(nowIst);
+        String expiry = expirySelectorService.pickCurrentExpiry(Instant.now());
+        LocalDate current = LocalDate.parse(expiry);
         long expMs = current.atStartOfDay(nowIst.getZone()).toInstant().toEpochMilli();
         Query q = new Query(new Criteria().andOperator(
                 Criteria.where("instrumentType").in("CE", "PE"),
