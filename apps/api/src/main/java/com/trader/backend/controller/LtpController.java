@@ -4,7 +4,7 @@ import com.trader.backend.entity.Selection;
 import com.trader.backend.repository.SelectionRepository;
 import com.trader.backend.service.Tick;
 import com.trader.backend.service.TickStore;
-import com.trader.backend.service.UpstoxFeedV3Client;
+import com.trader.backend.service.LiveFeedService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,12 +18,12 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class LtpController {
     private final TickStore tickStore;
-    private final UpstoxFeedV3Client feed;
+    private final LiveFeedService feed;
     private final SelectionRepository selectionRepository;
 
     @GetMapping("/ltp/nifty-fut")
     public Map<String, Object> niftyFut() {
-        String key = feed.symbols().stream().findFirst().orElse(null);
+        String key = feed.cachedKeys().stream().findFirst().orElse(null);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("key", key);
         Optional<Tick> t = key == null ? Optional.empty() : tickStore.get(key);
