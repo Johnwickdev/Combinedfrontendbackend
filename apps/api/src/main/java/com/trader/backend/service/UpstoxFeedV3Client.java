@@ -1,6 +1,9 @@
 package com.trader.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.trader.backend.events.TickEvent;
 import com.upstox.marketdatafeederv3udapi.rpc.proto.MarketDataFeed;
 import lombok.RequiredArgsConstructor;
@@ -16,13 +19,13 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import javax.annotation.PostConstruct;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +52,7 @@ public class UpstoxFeedV3Client {
     private final Map<String, Tick> latest = new ConcurrentHashMap<>();
     private final Set<String> symbols = ConcurrentHashMap.newKeySet();
     private final AtomicReference<WebSocketSession> sessionRef = new AtomicReference<>();
+    private static final ObjectMapper om = new ObjectMapper();
 
     @PostConstruct
     void start() {
@@ -82,13 +86,14 @@ public class UpstoxFeedV3Client {
         symbols.add(key);
         WebSocketSession session = sessionRef.get();
         if (session != null) {
-            MarketDataFeed.FeedRequest.Builder req = MarketDataFeed.FeedRequest.newBuilder()
-                    .setGuid(UUID.randomUUID().toString())
-                    .setMethod("sub");
-            MarketDataFeed.Data.Builder data = MarketDataFeed.Data.newBuilder().setMode(mode);
-            data.addInstrumentKeys(key);
-            req.setData(data);
-            byte[] b = req.build().toByteArray();
+            ObjectNode frame = om.createObjectNode();
+            frame.put("guid", UUID.randomUUID().toString());
+            frame.put("method", "sub");
+            ObjectNode data = frame.putObject("data");
+            data.put("mode", mode);
+            ArrayNode arr = data.putArray("instrumentKeys");
+            arr.add(key);
+            byte[] b = frame.toString().getBytes(StandardCharsets.UTF_8);
             session.send(Mono.just(session.binaryMessage(f -> f.wrap(b)))).subscribe();
             log.info("[sub] added key={} mode={}", key, mode);
         }
@@ -162,14 +167,14 @@ public class UpstoxFeedV3Client {
     }
 
     private byte[] buildSubFrame() {
-        MarketDataFeed.FeedRequest.Builder req = MarketDataFeed.FeedRequest.newBuilder()
-                .setGuid(UUID.randomUUID().toString())
-                .setMethod("sub");
-        MarketDataFeed.Data.Builder data = MarketDataFeed.Data.newBuilder()
-                .setMode(mode);
-        data.addAllInstrumentKeys(symbols);
-        req.setData(data);
-        return req.build().toByteArray();
+        ObjectNode frame = om.createObjectNode();
+        frame.put("guid", UUID.randomUUID().toString());
+        frame.put("method", "sub");
+        ObjectNode data = frame.putObject("data");
+        data.put("mode", mode);
+        ArrayNode arr = data.putArray("instrumentKeys");
+        for (String s : symbols) arr.add(s);
+        return frame.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     private void handlePayload(DataBuffer buf) {
@@ -179,8 +184,6 @@ public class UpstoxFeedV3Client {
             MarketDataFeed.FeedResponse resp = MarketDataFeed.FeedResponse.parseFrom(b);
             if (resp.getType() == MarketDataFeed.Type.market_info) {
                 log.info("market_info: {}", resp.getMarketInfo().getSegmentStatusMap());
-                boolean open = "OPEN".equalsIgnoreCase(resp.getMarketInfo().getSegmentStatusMap().getOrDefault("NSE_FO", ""));
-                marketStatusService.onMarketInfo(open);
                 return;
             }
             resp.getFeedsMap().forEach((key, feed) -> {
