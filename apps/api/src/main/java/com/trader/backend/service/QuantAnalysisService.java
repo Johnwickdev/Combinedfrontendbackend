@@ -1,6 +1,9 @@
 package com.trader.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.trader.backend.service.Tick;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -46,6 +49,15 @@ public class QuantAnalysisService {
 
         Signal signal = determineSignal(momentum, volSpike, imbalance, noise);
         return new QuantAnalysisResult(momentum, volSpike, imbalance, noise, signal);
+    }
+
+    public QuantAnalysisResult computeAnalysis(Tick tick) {
+        ObjectNode root = JsonNodeFactory.instance.objectNode();
+        ObjectNode fullFeed = root.putObject("fullFeed");
+        ObjectNode marketFF = fullFeed.putObject("marketFF");
+        ObjectNode ltpc = marketFF.putObject("ltpc");
+        ltpc.put("ltp", tick.ltp());
+        return analyze(tick.instrumentKey(), root);
     }
 
     private double computeMidPrice(JsonNode marketFF) {

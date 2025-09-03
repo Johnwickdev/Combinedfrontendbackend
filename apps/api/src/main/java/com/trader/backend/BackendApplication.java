@@ -9,7 +9,7 @@ import com.trader.backend.config.LwpProperties;
 import com.trader.backend.config.SignalsProperties;
 import com.trader.backend.config.SimProperties;
 
-@SpringBootApplication(scanBasePackages = "com.trader.backend")
+@SpringBootApplication(scanBasePackages = {"com.trader.backend", "com.autotrade.trading"})
 @EnableScheduling
 @EnableConfigurationProperties({SignalsProperties.class, LwpProperties.class, SimProperties.class})
 public class BackendApplication {
