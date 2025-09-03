@@ -47,6 +47,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -1042,6 +1044,14 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
         Instant cutoff = Instant.now().minusSeconds(60);
         dq.removeIf(t -> t.ts().isBefore(cutoff));
         return new ArrayList<>(dq);
+    }
+
+    public void subscribe(String instrumentKey) {
+        log.info("Subscribing to {}", instrumentKey);
+    }
+
+    public void subscribe(Collection<String> instrumentKeys) {
+        instrumentKeys.forEach(this::subscribe);
     }
 
     private long extractTimestamp(JsonNode feed, JsonNode tick) {

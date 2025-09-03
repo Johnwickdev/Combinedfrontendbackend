@@ -32,6 +32,10 @@ public class ExpirySelectorService {
         this.mongoTemplate = null;
     }
 
+    public void ensureCurrentWeeklyExpiry() {
+        selectCurrentOptionExpiry(ZonedDateTime.now(IST));
+    }
+
     /**
      * Selects current weekly expiry based on trading rules and stores in meta_config.
      * Logs when the value changes.
