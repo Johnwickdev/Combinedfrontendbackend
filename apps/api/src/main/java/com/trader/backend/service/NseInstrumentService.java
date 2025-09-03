@@ -685,7 +685,7 @@ public String selectionSignature(SelectionData sel) {
 public String formatExpiry(long expiry) {
     return Instant.ofEpochMilli(expiry).atZone(IST).toLocalDate().toString();
 }
-public void saveNiftyFuturesToMongo() {
+public long saveNiftyFuturesToMongo() {
     log.info("📂 Extracting NIFTY FUTURE records from NSE.json...");
     ensureNseJsonLoaded(false);
     List<NseInstrument> all = new ArrayList<>(nseCache);
@@ -723,6 +723,7 @@ public void saveNiftyFuturesToMongo() {
     } else {
         log.warn("⚠️ No matching NIFTY FUT records found.");
     }
+    return niftyFutures.size();
 }
 
 // helper: choose nearest non-expired NIFTY FUT using IST 3:30 PM cutoff
@@ -987,9 +988,8 @@ public void refreshNiftyOptionsByNearestExpiryFromJson() {
         long now = System.currentTimeMillis();
         Query expired = new Query(Criteria.where("expiry").lt(now));
 
-        long del1 = mongoTemplate.remove(expired, "nse_instruments").getDeletedCount();
-        long del2 = mongoTemplate.remove(expired, "filtered_nifty_premiums").getDeletedCount();
-        log.info("🧹 Purged expired: nse_instruments={}, filtered_nifty_premiums={}", del1, del2);
+        mongoTemplate.remove(expired, "nse_instruments");
+        mongoTemplate.remove(expired, "filtered_nifty_premiums");
     }
 
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Kolkata")

@@ -84,7 +84,7 @@ public class LiveFeedService {
     private final QuantAnalysisService quantAnalysisService;
     private final MarketState marketState;
     private final DepthMetricsService depthMetricsService;
-    @Value("${app.mock:false}")
+    @Value("${APP_MOCK:false}")
     private boolean mockMode;
 private final Sinks.Many<JsonNode> sink = Sinks.many().multicast().onBackpressureBuffer();
 private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
@@ -95,6 +95,8 @@ private final AtomicBoolean optionsStreamStarted = new AtomicBoolean(false);
     private final AtomicInteger optSubscribedCount = new AtomicInteger(0);
     private final AtomicLong ticksLast60s = new AtomicLong();
     private final AtomicReference<Instant> lastTickTs = new AtomicReference<>(null);
+    private final AtomicReference<String> currentFutKey = new AtomicReference<>(null);
+    private final AtomicBoolean futLtpLogged = new AtomicBoolean(false);
 
 private final AtomicLong lastAutoStartLog = new AtomicLong(0);
 
@@ -147,13 +149,14 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     public Instant lastConnectTs() { return lastConnectTs.get(); }
     public String lastCloseReason() { return lastCloseReason.get(); }
     public Map<String, Tick> latestTicks() { return new LinkedHashMap<>(lastTick); }
+    public String currentFutKey() { return currentFutKey.get(); }
 
     private final Sinks.Many<LtpEvent> ltpSink = Sinks.many().multicast().onBackpressureBuffer();
     public Flux<LtpEvent> ltpEvents() { return ltpSink.asFlux(); }
 
-    @Value("${influx.bucket:}")
+    @Value("${INFLUX_BUCKET:}")
     private String influxBucket;
-    @Value("${influx.org:}")
+    @Value("${INFLUX_ORG:}")
     private String influxOrg;
 
     private final Map<String, NseInstrument> instrumentCache = new ConcurrentHashMap<>();
@@ -199,16 +202,11 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     public void subscribeToAuthEvents() {
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.READY)
-                .subscribe(ev -> {
-                    nseInstrumentService.refreshIfOptionsEmpty();
-                    ensureOptionStream();
-                    connectIfOpenOrSchedule();
-                });
+                .subscribe(ev -> startOrchestration());
 
         auth.events()
                 .filter(e -> e == UpstoxAuthService.AuthEvent.EXPIRED)
                 .subscribe(e -> {
-                    log.warn("Auth token expired or refresh failed; waiting for re-login");
                     orchestratorState.set(OrchestratorState.IDLE);
                     selectionComputed.set(false);
                 });
@@ -226,47 +224,45 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                     long opt = optWrites.getAndSet(0);
                     ticksLast60s.set(fut + opt);
                     String source = connected.get() ? "live" : "influx";
-                    log.info("HEARTBEAT market={} liveFut={} liveOpts={} writesFut={}/15s writesOpt={}/15s sourceUsed={} ceLoadedCount={} peLoadedCount={}",
-                            open ? "open" : "closed", futOn ? "on" : "off", optCount, fut, opt, source,
-                            ceLoadedCount.get(), peLoadedCount.get());
+                    log.info("HEARTBEAT market={} liveFut={} liveOpts={} writesFut={}/15s writesOpt={}/15s sourceUsed={}",
+                            open ? "open" : "closed", futOn ? "on" : "off", optCount, fut, opt, source);
                 });
+    }
+
+    private void startOrchestration() {
+        nseInstrumentService.ensureNseJsonLoaded();
+        log.info("FLOW 1/8: NSE JSON loaded (size={})", nseInstrumentService.getCachedNse().size());
+        nseInstrumentService.purgeExpiredOptionDocs();
+        log.info("FLOW 2/8: Purged expired option docs");
+        long count = nseInstrumentService.saveNiftyFuturesToMongo();
+        log.info("FLOW 3/8: NIFTY FUT contracts saved → mongo collection=nifty_futures count={}", count);
+        connectIfOpenOrSchedule();
     }
 
     public void connectIfOpenOrSchedule() {
         Instant now = Instant.now();
-        ZoneId tz = MarketHours.zone();
-        ZonedDateTime nowIst = now.atZone(tz);
-        ZonedDateTime openIst = nowIst.with(MarketHours.openTime()).withSecond(0).withNano(0);
-        ZonedDateTime closeIst = nowIst.with(MarketHours.closeTime()).withSecond(0).withNano(0);
-
         boolean isTradingWindowNow = MarketHours.isOpen(now);
-        boolean todayIsTradingDay = MarketHours.isTradingDay(nowIst.toLocalDate());
-        boolean tokenPresent = auth.currentToken() != null;
-        boolean connected = orchestratorState.get() == OrchestratorState.READY;
-        boolean shouldStart = isTradingWindowNow && todayIsTradingDay && tokenPresent && !connected;
-
-        String decision = shouldStart ? "START" : "WAIT";
-
-        if (shouldStart) {
-            startLive();
-        } else if (!isTradingWindowNow) {
+        boolean todayIsTradingDay = MarketHours.isTradingDay(now.atZone(MarketHours.zone()).toLocalDate());
+        log.info("FLOW 4/8: Market window check → isOpen={} todayTradingDay={}", isTradingWindowNow, todayIsTradingDay);
+        if (!isTradingWindowNow) {
             Instant next = MarketHours.nextOpenAfter(now);
-            log.info("Market closed — scheduling live feed start at {}", next);
+            log.info("FLOW 5/8: Market closed — scheduling live feed at {}", next.atZone(MarketHours.zone()));
             long delay = Duration.between(now, next).toMillis();
             Mono.delay(Duration.ofMillis(delay)).subscribe(v -> startLive());
-        }
-
-        long nowMs = System.currentTimeMillis();
-        long prev = lastAutoStartLog.get();
-        if (nowMs - prev >= 60_000 && lastAutoStartLog.compareAndSet(prev, nowMs)) {
-            log.info("AUTO-START-CHECK nowIst={} openIst={} closeIst={} isTradingWindowNow={} todayIsTradingDay={} tokenPresent={} connected={} decision={}",
-                    nowIst.toLocalTime(), openIst.toLocalTime(), closeIst.toLocalTime(),
-                    isTradingWindowNow, todayIsTradingDay, tokenPresent, connected, decision);
+        } else {
+            log.info("FLOW 5/8: Market open — starting live feed");
+            startLive();
         }
     }
 
     public void startLive() {
-        initLiveWebSocket();
+        if (mockMode) {
+            log.info("🧪 Mock mode enabled - skipping live feed startup");
+            return;
+        }
+        orchestratorState.set(OrchestratorState.RUNNING);
+        streamNiftyFutAndTriggerCEPE();
+        orchestratorState.set(OrchestratorState.READY);
     }
 
     private void ensureOptionStream() {
@@ -302,37 +298,6 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
         ZonedDateTime nowIst = ZonedDateTime.now(MarketHours.zone());
         nseInstrumentService.ensureOptionsLoaded(nowIst);
         startLive();
-    }
-
-    public void initLiveWebSocket() {
-        if (mockMode) {
-            log.info("🧪 Mock mode enabled - skipping live feed startup");
-            return;
-        }
-        Instant now = Instant.now();
-        if (!MarketHours.isOpen(now)) {
-            log.info("Market closed — skipping WS connect until {}", MarketHours.nextOpenAfter(now));
-            return;
-        }
-        if (!orchestratorState.compareAndSet(OrchestratorState.IDLE, OrchestratorState.RUNNING)) {
-            return;
-        }
-        log.info("OAuth success — starting market pipeline...");
-        try {
-            if (instrumentsInitialized.compareAndSet(false, true)) {
-                nseInstrumentService.ensureNseJsonLoaded();
-                nseInstrumentService.purgeExpiredOptionDocs();
-                nseInstrumentService.refreshIfOptionsEmpty();
-                nseInstrumentService.saveNiftyFuturesToMongo();
-            } else {
-                log.info("init sequence skipped: already initialized");
-            }
-            streamNiftyFutAndTriggerCEPE();
-        } catch (Exception e) {
-            log.error("❌ init sequence failed", e);
-        } finally {
-            orchestratorState.set(OrchestratorState.READY);
-        }
     }
 
     /**
@@ -828,20 +793,20 @@ public MongoTemplate getMongoTemplate() {
     return mongoTemplate;
 }
 public void streamNiftyFutAndTriggerCEPE() {
-    log.info("🚀 Subscribing to NIFTY FUT to extract LTP and filter CE/PE...");
-
     if (auth.currentToken() == null) {
         log.warn("⚠️ Cannot start NIFTY FUT stream — token not available");
         return;
     }
 
-    Optional<String> optKey = nseInstrumentService.nearestNiftyFutureKey();
+    Optional<String> optKey = nseInstrumentService.getCurrentMonthNiftyFutKey();
     if (optKey.isEmpty()) {
-        log.error("❌ No valid NIFTY FUT contract to subscribe.");
+        log.error("ERR FUT: current-month NIFTY FUT not found — cannot subscribe");
         return;
     }
     String instrumentKey = optKey.get();
-    log.info("📦 Subscribing to NIFTY FUT: {}", instrumentKey);
+    currentFutKey.set(instrumentKey);
+    futLtpLogged.set(false);
+    selectionComputed.set(false);
 
     fetchWebSocketUrl()
             .flatMapMany(wsUrl -> openWebSocketForOptions(wsUrl, buildSubFrame(instrumentKey)))
@@ -866,19 +831,19 @@ public void streamNiftyFutAndTriggerCEPE() {
                         marketState.setLastTickTs(ts);
                         bufferOptionTick(instrumentKey, feed, ts, ltp);
 
-                        if (selectionComputed.compareAndSet(false, true)) {
-                            nseInstrumentService.filterStrikesAroundLtpFromJson(ltp);
-                            NseInstrumentService.SelectionData sel = nseInstrumentService.currentSelectionData();
-                            String sig = nseInstrumentService.selectionSignature(sel);
+                        if (futLtpLogged.compareAndSet(false, true)) {
+                            log.info("FLOW 6/8: FUT LTP resolved key={} ltp={} ts={}", instrumentKey, ltp, Instant.ofEpochMilli(ts));
+                            NseInstrumentService.OptionBatch batch = nseInstrumentService.filterStrikesAroundLtpFromJson(ltp);
+                            int ce = batch.ce().size();
+                            int pe = batch.pe().size();
+                            String expiry = nseInstrumentService.formatExpiry(batch.expiry());
+                            String sig = expiry + ":" + ce + ":" + pe;
                             if (sig.equals(lastSelectionSignature.get())) {
-                                log.info("Orchestration skipped — selection unchanged (expiry={})", nseInstrumentService.formatExpiry(sel.expiry()));
+                                log.info("FLOW 7/8: Selection unchanged — expiry={} ce={} pe={}", expiry, ce, pe);
                             } else {
                                 lastSelectionSignature.set(sig);
+                                log.info("FLOW 7/8: Options selected from NSE JSON — expiry={} ce={} pe={}", expiry, ce, pe);
                                 streamFilteredNiftyOptions();
-                                log.info("Setup complete — FUT={} expiry={}; CE={}, PE={}; subscribed={}",
-                                        instrumentKey,
-                                        nseInstrumentService.formatExpiry(sel.expiry()),
-                                        sel.ceCount(), sel.peCount(), sel.keys().size());
                             }
                         }
                     } else {
@@ -944,20 +909,14 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
     public void logResolvedLtp(String instrumentKey, double ltp, String source) {
         NseInstrument info = instrumentCache.computeIfAbsent(instrumentKey,
                 k -> mongoTemplate.findById(k, NseInstrument.class));
-        String label = instrumentKey;
         if (info != null) {
             String type = info.getInstrumentType();
-            if (type != null && type.toUpperCase().contains("FUT")) {
-                label = "NIFTY FUT";
-            } else if ("CE".equalsIgnoreCase(type) || "PE".equalsIgnoreCase(type)) {
-                Integer sp = info.getStrikePrice();
-                String strike = sp != null ? String.valueOf(sp) : "";
-                label = String.format("NIFTY %s strike=%s", type.toUpperCase(), strike);
-            } else if (info.getTradingSymbol() != null) {
-                label = info.getTradingSymbol();
+            if ("CE".equalsIgnoreCase(type) || "PE".equalsIgnoreCase(type)) {
+                log.info("OPT LTP key={} ltp={}", instrumentKey, ltp);
+                return;
             }
         }
-        log.info("LTP [{}] {}={}", label, source, ltp);
+        log.info("LTP [{}] {}={}", instrumentKey, source, ltp);
     }
 
     private void onMarketClose() {
@@ -983,7 +942,7 @@ private Flux<JsonNode> openWebSocketWithDynamicSub(String wsUrl, java.util.funct
             logLtp(t.instrumentKey(), t.ltp(), t.ts().toEpochMilli());
             optRows++;
         }
-        log.info("MARKET CLOSED — last snapshot FUT={}, OPT rows={}", futPrice, optRows);
+        log.info("FLOW 8/8: MARKET CLOSED — last snapshot futLtp={} optRows={}", futPrice, optRows);
         lastTick.clear();
         optionBuffers.clear();
         connected.set(false);
