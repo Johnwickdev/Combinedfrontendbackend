@@ -83,7 +83,7 @@ public class NSEBootstrapService {
         }
     }
 
-    @Scheduled(cron = "0 0 9 * * *", zone = "Asia/Kolkata")
+    @Scheduled(cron = "0 0 9 * * *", zone = "${APP_TIMEZONE:Asia/Kolkata}")
     public void scheduledRefresh() {
         refresh();
     }

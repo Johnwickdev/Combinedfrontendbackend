@@ -1,52 +1,33 @@
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
-  <localRepository>${user.home}/.m2/repository</localRepository>
   <mirrors>
     <mirror>
-      <id>repo1</id>
-      <name>Maven Central Mirror</name>
-      <url>https://repo1.maven.org/maven2</url>
+      <id>central-primary</id>
+      <name>Maven Central</name>
+      <url>https://repo.maven.apache.org/maven2/</url>
       <mirrorOf>central</mirrorOf>
     </mirror>
-    <!-- Optional private mirror; set PRIVATE_MAVEN_MIRROR to enable -->
     <mirror>
-      <id>private</id>
-      <url>${env.PRIVATE_MAVEN_MIRROR}</url>
+      <id>central-google</id>
+      <name>Google Mirror</name>
+      <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
       <mirrorOf>central</mirrorOf>
     </mirror>
   </mirrors>
   <profiles>
     <profile>
-      <id>offline-ready</id>
+      <id>ci-network</id>
       <properties>
-        <wagon.http.retryHandler.count>3</wagon.http.retryHandler.count>
-        <wagon.http.connectTimeout>5000</wagon.http.connectTimeout>
+        <maven.wagon.http.connectionTimeout>30000</maven.wagon.http.connectionTimeout>
+        <maven.wagon.http.readTimeout>90000</maven.wagon.http.readTimeout>
+        <maven.wagon.http.retryHandler.class>default</maven.wagon.http.retryHandler.class>
+        <maven.wagon.http.retryHandler.count>8</maven.wagon.http.retryHandler.count>
+        <org.eclipse.aether.connector.basic.retryHandler.maxRetries>8</org.eclipse.aether.connector.basic.retryHandler.maxRetries>
+        <java.net.preferIPv4Stack>true</java.net.preferIPv4Stack>
       </properties>
-      <repositories>
-        <repository>
-          <id>local-repo</id>
-          <url>file://${user.home}/.m2/repository</url>
-          <releases>
-            <enabled>true</enabled>
-          </releases>
-          <snapshots>
-            <enabled>true</enabled>
-          </snapshots>
-        </repository>
-      </repositories>
-      <pluginRepositories>
-        <pluginRepository>
-          <id>local-repo</id>
-          <url>file://${user.home}/.m2/repository</url>
-          <releases>
-            <enabled>true</enabled>
-          </releases>
-          <snapshots>
-            <enabled>true</enabled>
-          </snapshots>
-        </pluginRepository>
-      </pluginRepositories>
+      <activation><activeByDefault>true</activeByDefault></activation>
     </profile>
   </profiles>
 </settings>
+

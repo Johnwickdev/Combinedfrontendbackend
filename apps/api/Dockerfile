@@ -8,7 +8,7 @@ RUN chmod +x mvnw
 
 # Copy sources and build
 COPY src ./src
-RUN ./mvnw -B -V -e clean package -DskipFrontend=true -Dmaven.test.skip=true -Pci
+RUN ./mvnw -B -V -e -X -DtrimStackTrace=false -s .mvn/settings.xml -DskipTests package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
