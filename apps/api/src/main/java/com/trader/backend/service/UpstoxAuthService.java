@@ -10,6 +10,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -102,6 +103,14 @@ public class UpstoxAuthService {
                         .with("redirect_uri", webhookUri)
                         .with("grant_type", "authorization_code"))
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    return resp.createException();
+                                }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .doOnNext(tok -> {
                     String at = (String) tok.get("access_token");
@@ -128,7 +137,9 @@ public class UpstoxAuthService {
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     saveTokenBundle(at, refreshToken.get(), exp);
                     authEvents.tryEmitNext(AuthEvent.READY);
-                    log.info("✅ access_token saved (expires {})", exp > 0 ? Instant.ofEpochSecond(exp) : "unknown");
+                    String scope = (String) tok.get("scope");
+                    log.info("[auth] token acquired exp={} scope={}",
+                            exp > 0 ? Instant.ofEpochSecond(exp) : null, scope);
                 })
                 .then();
     }
@@ -180,6 +191,14 @@ public class UpstoxAuthService {
                         .with("client_id", apiKey)
                         .with("client_secret", apiSecret))
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    return resp.createException();
+                                }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .map(tok -> {
                     String at = (String) tok.get("access_token");
@@ -194,7 +213,8 @@ public class UpstoxAuthService {
                     expiresAt.set(exp);
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     saveTokenBundle(at, refreshToken.get(), exp);
-                    log.info("🔄 Refreshed access_token ({} sec left)", ttl);
+                    String scope = (String) tok.get("scope");
+                    log.info("[auth] token acquired exp={} scope={}", Instant.ofEpochSecond(exp), scope);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     return true;
                 })
@@ -283,6 +303,14 @@ public class UpstoxAuthService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    return resp.createException();
+                                }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
                 .map(resp -> {
                     @SuppressWarnings("unchecked")
@@ -306,11 +334,17 @@ public class UpstoxAuthService {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .header(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
                 .retrieve()
-                .onStatus(status -> status.value() == 401,
-                        resp -> {
-                            log.warn("Upstox API responded 401 for balance fetch");
-                            return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized"));
-                        })
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    if (resp.statusCode().value() == 401) {
+                                        return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized"));
+                                    }
+                                    return resp.createException();
+                                }))
                 .bodyToMono(JsonNode.class)
                 .map(j -> j.at("/data/equity/available_margin").asDouble(0.0));
     }

@@ -14,6 +14,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
@@ -122,6 +123,14 @@ public class UpstoxFeedV3Client {
         return client.get()
                 .uri("/feed/market-data-feed/authorize-v3")
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    return resp.createException();
+                                }))
                 .bodyToMono(JsonNode.class)
                 .map(resp -> {
                     JsonNode n = resp.path("data").path("authorized_redirect_uri");
@@ -130,6 +139,7 @@ public class UpstoxFeedV3Client {
                     }
                     return n.asText();
                 })
+                .doOnNext(v -> log.info("[ws] authorize-v3 ok; redirect_uri=present"))
                 .flatMap(this::openWebSocket);
     }
 
