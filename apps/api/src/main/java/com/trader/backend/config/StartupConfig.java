@@ -12,16 +12,16 @@ public class StartupConfig {
     @Value("${SPRING_DATA_MONGODB_URI:}")
     private String mongoUri;
 
-    @Value("${INFLUX_URL:}")
+    @Value("${influx.url:}")
     private String influxUrl;
 
-    @Value("${INFLUX_TOKEN:}")
+    @Value("${influx.token:}")
     private String influxToken;
 
-    @Value("${INFLUX_ORG:}")
+    @Value("${influx.org:}")
     private String influxOrg;
 
-    @Value("${INFLUX_BUCKET:}")
+    @Value("${influx.bucket:}")
     private String influxBucket;
 
     @Value("${APP_CORS_ALLOWED_ORIGINS:}")
