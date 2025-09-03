@@ -102,6 +102,12 @@ public class UpstoxFeedV3Client {
     }
 
     private void connectLoop() {
+        String token = auth.currentToken();
+        if (token == null || token.isBlank()) {
+            Mono.delay(Duration.ofSeconds(1)).subscribe(v -> connectLoop());
+            return;
+        }
+        auth.setState(UpstoxAuthService.State.WS_CONNECTING);
         authorizeAndConnect()
                 .doOnError(e -> {
                     lastError.set(e.getMessage());
@@ -141,7 +147,7 @@ public class UpstoxFeedV3Client {
                     }
                     return n.asText();
                 })
-                .doOnNext(v -> log.info("[ws] authorize-v3 ok; redirect_uri=present"))
+                .doOnNext(v -> log.info("[ws] authorize-v3 ok"))
                 .flatMap(this::openWebSocket);
     }
 
@@ -160,6 +166,7 @@ public class UpstoxFeedV3Client {
                         connected.set(true);
                         lastError.set(null);
                         marketStatusService.setWsConnected(true);
+                        auth.setState(UpstoxAuthService.State.WS_LIVE);
                         log.info("[ws] v3 authorized and connected");
                     })
                     .map(WebSocketMessage::getPayload)

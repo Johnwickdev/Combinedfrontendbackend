@@ -69,6 +69,8 @@ public class UpstoxAuthService {
     private final Path tokenFile = Paths.get("token.json");
 
     private final Sinks.Many<AuthEvent> authEvents = Sinks.many().replay().latest();
+    public enum State { BOOT, WAIT_AUTH, AUTH_READY, WS_CONNECTING, WS_LIVE, INSTR_DISCOVERY, LTP_FLOW, OPTIONS_LIVE }
+    private final AtomicReference<State> state = new AtomicReference<>(State.WAIT_AUTH);
 
     public UpstoxAuthService(ApiClient apiClient, @Lazy LiveFeedService liveFeed) {
         this.apiClient = apiClient;
@@ -83,6 +85,7 @@ public class UpstoxAuthService {
     void init() {
         log.info("No Upstox token yet — waiting for OAuth login (GET /auth/url).");
         authEvents.tryEmitNext(AuthEvent.WAITING);
+        state.set(State.WAIT_AUTH);
     }
 
     /** Event stream for authentication state changes. */
@@ -142,6 +145,7 @@ public class UpstoxAuthService {
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     saveTokenBundle(at, refreshToken.get(), exp);
                     authEvents.tryEmitNext(AuthEvent.READY);
+                    state.set(State.AUTH_READY);
                     String scope = (String) tok.get("scope");
                     log.info("[auth] token acquired exp={} scope={}",
                             exp > 0 ? Instant.ofEpochSecond(exp) : null, scope);
@@ -220,6 +224,7 @@ public class UpstoxAuthService {
                     String scope = (String) tok.get("scope");
                     log.info("[auth] token acquired exp={} scope={}", Instant.ofEpochSecond(exp), scope);
                     authEvents.tryEmitNext(AuthEvent.READY);
+                    state.set(State.AUTH_READY);
                     return true;
                 })
                 .onErrorResume(e -> {
@@ -254,6 +259,9 @@ public class UpstoxAuthService {
         accessToken.set(token);
         apiClient.addDefaultHeader("Authorization", "Bearer " + token);
     }
+
+    public State state() { return state.get(); }
+    public void setState(State s) { state.set(s); }
 
     /**
      * Simple status endpoint helper.
