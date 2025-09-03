@@ -12,23 +12,23 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class InfluxConfig {
 
-    @Value("${influx.url:}")
+    @Value("${INFLUX_URL:}")
     private String url;
 
-    @Value("${influx.token:}")
+    @Value("${INFLUX_TOKEN:}")
     private String token;
 
-    @Value("${influx.org:}")
+    @Value("${INFLUX_ORG:}")
     private String org;
 
-    @Value("${influx.bucket:}")
+    @Value("${INFLUX_BUCKET:}")
     private String bucket;
 
     /**
      * Create a singleton InfluxDBClient that knows your URL, token, org & bucket.
      */
     @Bean
-    @ConditionalOnProperty(prefix = "influx", name = "url")
+    @ConditionalOnProperty(name = "INFLUX_URL")
     public InfluxDBClient influxDBClient() {
         // note: token must be passed as char[] for security
         return InfluxDBClientFactory.create(url, token.toCharArray(), org, bucket);

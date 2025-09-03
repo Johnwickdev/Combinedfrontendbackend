@@ -22,7 +22,6 @@ import reactor.core.publisher.Sinks;
 import org.springframework.web.server.ResponseStatusException;
 import java.util.Base64;
 
-import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,13 +52,13 @@ public class UpstoxAuthService {
     private final ApiClient apiClient;
     private final LiveFeedService liveFeed;
 
-    @Value("${upstox.apiKey:}")
+    @Value("${UPSTOX_API_KEY:}")
     private String apiKey;
 
-    @Value("${upstox.apiSecret:}")
+    @Value("${UPSTOX_API_SECRET:}")
     private String apiSecret;
 
-    @Value("${upstox.webhookUri:}")
+    @Value("${UPSTOX_WEBHOOK_URI:}")
     private String webhookUri;
 
     private final AtomicReference<String> accessToken = new AtomicReference<>();
@@ -81,9 +80,8 @@ public class UpstoxAuthService {
      * Log a friendly message at boot so Railway users know the backend is
      * waiting for a login.  This method never fails.
      */
-    @PostConstruct
-    void init() {
-        log.info("No Upstox token yet — waiting for OAuth login (GET /auth/url).");
+    public void init() {
+        log.info("No Upstox token yet — waiting for OAuth login (GET /auth/url)");
         authEvents.tryEmitNext(AuthEvent.WAITING);
         state.set(State.WAIT_AUTH);
     }
@@ -146,9 +144,10 @@ public class UpstoxAuthService {
                     saveTokenBundle(at, refreshToken.get(), exp);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     state.set(State.AUTH_READY);
-                    String scope = (String) tok.get("scope");
-                    log.info("[auth] token acquired exp={} scope={}",
-                            exp > 0 ? Instant.ofEpochSecond(exp) : null, scope);
+                    long nowSec = System.currentTimeMillis() / 1000;
+                    long remaining = exp - nowSec;
+                    log.info("AUTH READY: access_token saved (expires {}) remaining={}",
+                            exp > 0 ? Instant.ofEpochSecond(exp) : null, remaining);
                 })
                 .then();
     }
@@ -221,14 +220,15 @@ public class UpstoxAuthService {
                     expiresAt.set(exp);
                     apiClient.addDefaultHeader("Authorization", "Bearer " + at);
                     saveTokenBundle(at, refreshToken.get(), exp);
-                    String scope = (String) tok.get("scope");
-                    log.info("[auth] token acquired exp={} scope={}", Instant.ofEpochSecond(exp), scope);
                     authEvents.tryEmitNext(AuthEvent.READY);
                     state.set(State.AUTH_READY);
+                    long nowSec = System.currentTimeMillis() / 1000;
+                    long remaining = exp - nowSec;
+                    log.info("AUTH READY: access_token saved (expires {}) remaining={}", Instant.ofEpochSecond(exp), remaining);
                     return true;
                 })
                 .onErrorResume(e -> {
-                    log.warn("Refresh call failed", e);
+                    log.warn("AUTH EXPIRED: refresh failed — waiting for new login", e);
                     authEvents.tryEmitNext(AuthEvent.EXPIRED);
                     return Mono.just(false);
                 });
