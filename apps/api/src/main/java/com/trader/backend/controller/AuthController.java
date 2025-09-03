@@ -4,8 +4,10 @@ import com.trader.backend.service.UpstoxAuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,8 +28,12 @@ public class AuthController {
     /** Return the OAuth dialog URL for the frontend. */
     @GetMapping("/url")
     public Map<String, String> loginUrl() {
+        String url = auth.buildAuthUrl();
+        if (url == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstox credentials not configured");
+        }
         Map<String, String> body = new LinkedHashMap<>();
-        body.put("url", auth.buildAuthUrl());
+        body.put("url", url);
         return body;
     }
 

@@ -379,7 +379,8 @@ public class UpstoxAuthService {
     /** Build the Upstox OAuth dialog URL for the frontend. */
     public String buildAuthUrl() {
         if (apiKey.isBlank() || webhookUri.isBlank()) {
-            throw new IllegalStateException("Upstox credentials not configured");
+            log.warn("Upstox credentials not configured");
+            return null;
         }
 
         return UriComponentsBuilder
