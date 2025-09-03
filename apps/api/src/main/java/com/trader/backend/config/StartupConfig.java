@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class StartupConfig {
 
-    @Value("${SPRING_DATA_MONGODB_URI:}")
+    @Value("${spring.data.mongodb.uri:}")
     private String mongoUri;
 
     @Value("${influx.url:}")
