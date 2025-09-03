@@ -78,7 +78,7 @@ public class MarketDataService {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    String b = (body == null) ? "" : (body.length() > 500 ? body.substring(0,500) + "..." : body);
                                     log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     return resp.createException();
                                 }))
