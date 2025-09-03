@@ -49,6 +49,9 @@ public class UpstoxFeedV3Client {
     @Value("${TICK_SYMBOLS:}")
     private String symbolsCsv;
 
+    @Value("${FEED_V3_WS_SUBPROTOCOL:json}")
+    private String wsSubprotocol;
+
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicReference<String> lastError = new AtomicReference<>(null);
     private final Map<String, Tick> latest = new ConcurrentHashMap<>();
@@ -103,7 +106,12 @@ public class UpstoxFeedV3Client {
 
     private void connectLoop() {
         String token = auth.currentToken();
-        if (token == null || token.isBlank()) {
+        if (token == null) {
+            log.info("[ws] waiting for AUTH_READY (no token yet)");
+            Mono.delay(Duration.ofSeconds(3)).subscribe(v -> connectLoop());
+            return;
+        }
+        if (token.isBlank()) {
             Mono.delay(Duration.ofSeconds(1)).subscribe(v -> connectLoop());
             return;
         }
@@ -147,42 +155,43 @@ public class UpstoxFeedV3Client {
                     }
                     return n.asText();
                 })
-                .doOnNext(v -> log.info("[ws] authorize-v3 ok"))
+                .doOnNext(v -> log.info("[ws] authorize-v3 ok; got redirect uri"))
                 .flatMap(this::openWebSocket);
     }
 
     private Mono<Void> openWebSocket(String wsUrl) {
-        byte[] frame = buildSubFrame();
         ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 
-        return client.execute(URI.create(wsUrl), session -> {
-            sessionRef.set(session);
-            Mono<Void> sender = session.send(
-                    Mono.just(session.binaryMessage(factory -> factory.wrap(frame)))
-            );
+        return client.execute(
+                URI.create(wsUrl),
+                headers -> headers.setSecWebSocketProtocol(wsSubprotocol),
+                session -> {
+                    sessionRef.set(session);
+                    byte[] frame = buildSubFrame();
+                    Mono<Void> sender = session.send(
+                            Mono.just(session.binaryMessage(f -> f.wrap(frame)))
+                    );
 
-            Mono<Void> receiver = session.receive()
-                    .doOnSubscribe(s -> {
-                        connected.set(true);
-                        lastError.set(null);
-                        marketStatusService.setWsConnected(true);
-                        auth.setState(UpstoxAuthService.State.WS_LIVE);
-                        log.info("[ws] v3 authorized and connected");
-                    })
-                    .map(WebSocketMessage::getPayload)
-                    .doOnNext(this::handlePayload)
-                    .then()
-                    .doFinally(sig -> session.closeStatus()
-                            .doOnNext(cs -> {
+                    Mono<Void> receiver = session.receive()
+                            .doOnSubscribe(s -> {
+                                connected.set(true);
+                                lastError.set(null);
+                                marketStatusService.setWsConnected(true);
+                                auth.setState(UpstoxAuthService.State.WS_LIVE);
+                                log.info("[ws] v3 authorized and connected");
+                            })
+                            .map(WebSocketMessage::getPayload)
+                            .doOnNext(this::handlePayload)
+                            .then()
+                            .doFinally(sig -> session.closeStatus().doOnNext(cs -> {
                                 connected.set(false);
                                 marketStatusService.setWsConnected(false);
                                 log.info("[ws] closed code={} reason={}", cs.getCode(), cs.getReason());
-                            })
-                            .subscribe()
-                    );
+                            }).subscribe());
 
-            return Mono.when(sender, receiver);
-        });
+                    return Mono.when(sender, receiver);
+                }
+        ).doOnError(e -> log.warn("[ws] handshake failed, subprotocol={}", wsSubprotocol));
     }
 
     private byte[] buildSubFrame() {
