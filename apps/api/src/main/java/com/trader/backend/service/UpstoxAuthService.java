@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.BodyInserters;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
@@ -42,7 +43,12 @@ import java.util.concurrent.atomic.AtomicReference;
 @Slf4j
 public class UpstoxAuthService {
 
-    private final WebClient webClient = WebClient.create("https://api.upstox.com/v2");
+    private final WebClient webClient = WebClient.builder()
+            .baseUrl("https://api.upstox.com/v2")
+            .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+            .filter(logRequest())
+            .filter(logResponse())
+            .build();
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApiClient apiClient;
     private final LiveFeedService liveFeed;
@@ -106,9 +112,8 @@ public class UpstoxAuthService {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    log.error("[upstox] {} {} -> HTTP {} body={}",
-                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
-                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     return resp.createException();
                                 }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
@@ -194,9 +199,8 @@ public class UpstoxAuthService {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    log.error("[upstox] {} {} -> HTTP {} body={}",
-                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
-                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     return resp.createException();
                                 }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
@@ -306,9 +310,8 @@ public class UpstoxAuthService {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    log.error("[upstox] {} {} -> HTTP {} body={}",
-                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
-                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     return resp.createException();
                                 }))
                 .bodyToMono(new ParameterizedTypeReference<Map<String, Object>>() {})
@@ -337,9 +340,8 @@ public class UpstoxAuthService {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    log.error("[upstox] {} {} -> HTTP {} body={}",
-                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
-                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     if (resp.statusCode().value() == 401) {
                                         return Mono.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthorized"));
                                     }
@@ -380,6 +382,20 @@ public class UpstoxAuthService {
                 .queryParam("state", "botInit")
                 .queryParam("scope", "profile marketdata")
                 .build().toUriString();
+    }
+
+    private static ExchangeFilterFunction logRequest() {
+        return ExchangeFilterFunction.ofRequestProcessor(req -> {
+            log.info("[http->] {} {}", req.method(), req.url());
+            return Mono.just(req);
+        });
+    }
+
+    private static ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(resp -> {
+            log.info("[http<-] status={}", resp.statusCode().value());
+            return Mono.just(resp);
+        });
     }
 
     /** Authentication lifecycle events. */
