@@ -1,10 +1,10 @@
-// 🔥 Paste inside a new file: GlobalErrorHandler.java
 package com.trader.backend.config;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 @ControllerAdvice
@@ -18,9 +18,7 @@ public class GlobalErrorHandler {
             if (body == null) body = "";
             body = body.replaceAll("\n", " ");
             if (body.length() > 300) body = body.substring(0,300) + "...";
-            String method = w.getRequest() != null && w.getRequest().method() != null ? w.getRequest().method().name() : "";
-            String url = w.getRequest() != null ? w.getRequest().url().toString() : "";
-            log.error("Unhandled exception HTTP {} {} {} body={}", w.getStatusCode().value(), method, url, body, w);
+            log.error("Unhandled exception HTTP {} body={}", w.getStatusCode().value(), body, w);
         } else {
             log.error("Unhandled exception", ex);
         }
