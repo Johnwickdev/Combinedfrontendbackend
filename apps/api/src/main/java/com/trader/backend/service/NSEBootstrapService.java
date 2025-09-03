@@ -13,6 +13,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 
 import javax.annotation.PostConstruct;
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -20,6 +21,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.GZIPInputStream;
 
 @Service
 @RequiredArgsConstructor
@@ -57,18 +59,28 @@ public class NSEBootstrapService {
 
     public synchronized int refresh() {
         try {
-            String json;
+            byte[] data;
             if (nseUrl == null || nseUrl.isBlank()) {
                 try (InputStream is = getClass().getResourceAsStream("/nse_fno_data.json")) {
                     if (is == null) {
                         log.error("Failed to load nse_fno_data.json from classpath");
                         return 0;
                     }
-                    json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                    data = is.readAllBytes();
                 }
             } else {
-                json = webClient.get().uri(nseUrl).retrieve().bodyToMono(String.class).block();
+                data = webClient.get().uri(nseUrl).retrieve().bodyToMono(byte[].class).block();
             }
+
+            String json;
+            if (data != null && data.length >= 2 && (data[0] == 0x1f && (data[1] & 0xff) == 0x8b)) {
+                try (GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(data))) {
+                    json = new String(gis.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            } else {
+                json = new String(data, StandardCharsets.UTF_8);
+            }
+
             JsonNode arr = mapper.readTree(json);
             List<Instrument> list = new ArrayList<>();
             for (JsonNode n : arr) {
