@@ -1,15 +1,14 @@
 package com.trader.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.trader.backend.events.TickEvent;
 import com.upstox.marketdatafeederv3udapi.rpc.proto.MarketDataFeed;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -17,13 +16,11 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
-import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DataBufferUtils;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import javax.annotation.PostConstruct;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -47,7 +44,6 @@ public class UpstoxFeedV3Client {
     @Value("${TICK_SYMBOLS:}")
     private String symbolsCsv;
 
-    private final ObjectMapper om = new ObjectMapper();
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicReference<String> lastError = new AtomicReference<>(null);
     private final Map<String, Tick> latest = new ConcurrentHashMap<>();
@@ -86,14 +82,13 @@ public class UpstoxFeedV3Client {
         symbols.add(key);
         WebSocketSession session = sessionRef.get();
         if (session != null) {
-            ObjectNode frame = om.createObjectNode();
-            frame.put("guid", UUID.randomUUID().toString());
-            frame.put("method", "sub");
-            ObjectNode data = frame.putObject("data");
-            data.put("mode", mode);
-            ArrayNode arr = data.putArray("instrumentKeys");
-            arr.add(key);
-            byte[] b = frame.toString().getBytes(StandardCharsets.UTF_8);
+            MarketDataFeed.FeedRequest.Builder req = MarketDataFeed.FeedRequest.newBuilder()
+                    .setGuid(UUID.randomUUID().toString())
+                    .setMethod("sub");
+            MarketDataFeed.Data.Builder data = MarketDataFeed.Data.newBuilder().setMode(mode);
+            data.addInstrumentKeys(key);
+            req.setData(data);
+            byte[] b = req.build().toByteArray();
             session.send(Mono.just(session.binaryMessage(f -> f.wrap(b)))).subscribe();
             log.info("[sub] added key={} mode={}", key, mode);
         }
@@ -139,12 +134,10 @@ public class UpstoxFeedV3Client {
 
         return client.execute(URI.create(wsUrl), session -> {
             sessionRef.set(session);
-            // sender: send subscribe frame once
             Mono<Void> sender = session.send(
                     Mono.just(session.binaryMessage(factory -> factory.wrap(frame)))
             );
 
-            // receiver
             Mono<Void> receiver = session.receive()
                     .doOnSubscribe(s -> {
                         connected.set(true);
@@ -169,16 +162,14 @@ public class UpstoxFeedV3Client {
     }
 
     private byte[] buildSubFrame() {
-        ObjectNode frame = om.createObjectNode();
-        frame.put("guid", UUID.randomUUID().toString());
-        frame.put("method", "sub");
-        ObjectNode data = frame.putObject("data");
-        data.put("mode", mode);
-        ArrayNode arr = data.putArray("instrumentKeys");
-        for (String s : symbols) {
-            arr.add(s);
-        }
-        return frame.toString().getBytes(StandardCharsets.UTF_8);
+        MarketDataFeed.FeedRequest.Builder req = MarketDataFeed.FeedRequest.newBuilder()
+                .setGuid(UUID.randomUUID().toString())
+                .setMethod("sub");
+        MarketDataFeed.Data.Builder data = MarketDataFeed.Data.newBuilder()
+                .setMode(mode);
+        data.addAllInstrumentKeys(symbols);
+        req.setData(data);
+        return req.build().toByteArray();
     }
 
     private void handlePayload(DataBuffer buf) {
@@ -187,6 +178,7 @@ public class UpstoxFeedV3Client {
             buf.read(b);
             MarketDataFeed.FeedResponse resp = MarketDataFeed.FeedResponse.parseFrom(b);
             if (resp.getType() == MarketDataFeed.Type.market_info) {
+                log.info("market_info: {}", resp.getMarketInfo().getSegmentStatusMap());
                 boolean open = "OPEN".equalsIgnoreCase(resp.getMarketInfo().getSegmentStatusMap().getOrDefault("NSE_FO", ""));
                 marketStatusService.onMarketInfo(open);
                 return;
