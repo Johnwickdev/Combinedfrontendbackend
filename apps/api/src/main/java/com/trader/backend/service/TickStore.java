@@ -16,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TickStore {
     private final InfluxTickService influxTickService;
 
-    @Value("${INFLUX_URL:}")
+    @Value("${influx.url:}")
     private String influxUrl;
 
     private final Map<String, Tick> latest = new ConcurrentHashMap<>();

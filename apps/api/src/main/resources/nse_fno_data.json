@@ -1,0 +1,17 @@
+[
+  {
+    "instrument_key": "NSE_TEST_FUT",
+    "name": "TEST FUT",
+    "instrument_type": "FUT",
+    "expiry": 0,
+    "segment": "NSE"
+  },
+  {
+    "instrument_key": "NSE_TEST_OPT",
+    "name": "TEST OPT",
+    "instrument_type": "OPTCE",
+    "expiry": 0,
+    "strike_price": 0,
+    "segment": "NSE"
+  }
+]

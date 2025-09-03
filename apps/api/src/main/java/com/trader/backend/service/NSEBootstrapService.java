@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import javax.annotation.PostConstruct;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -50,7 +52,18 @@ public class NSEBootstrapService {
 
     public synchronized int refresh() {
         try {
-            String json = webClient.get().uri(nseUrl).retrieve().bodyToMono(String.class).block();
+            String json;
+            if (nseUrl == null || nseUrl.isBlank()) {
+                try (InputStream is = getClass().getResourceAsStream("/nse_fno_data.json")) {
+                    if (is == null) {
+                        log.error("Failed to load nse_fno_data.json from classpath");
+                        return 0;
+                    }
+                    json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            } else {
+                json = webClient.get().uri(nseUrl).retrieve().bodyToMono(String.class).block();
+            }
             JsonNode arr = mapper.readTree(json);
             List<Instrument> list = new ArrayList<>();
             for (JsonNode n : arr) {
