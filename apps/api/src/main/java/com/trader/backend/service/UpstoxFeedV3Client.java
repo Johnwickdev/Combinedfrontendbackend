@@ -16,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
@@ -119,6 +120,8 @@ public class UpstoxFeedV3Client {
                 .baseUrl("https://api-v2.upstox.com")
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
+                .filter(logRequest())
+                .filter(logResponse())
                 .build();
         return client.get()
                 .uri("/feed/market-data-feed/authorize-v3")
@@ -126,9 +129,8 @@ public class UpstoxFeedV3Client {
                 .onStatus(HttpStatusCode::isError, resp ->
                         resp.bodyToMono(String.class).defaultIfEmpty("")
                                 .flatMap(body -> {
-                                    log.error("[upstox] {} {} -> HTTP {} body={}",
-                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
-                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    String b = body.length() > 500 ? body.substring(0,500) + "..." : body;
+                                    log.error("[upstox] HTTP {} body={}", resp.statusCode().value(), b);
                                     return resp.createException();
                                 }))
                 .bodyToMono(JsonNode.class)
@@ -228,5 +230,19 @@ public class UpstoxFeedV3Client {
         } finally {
             DataBufferUtils.release(buf);
         }
+    }
+
+    private static ExchangeFilterFunction logRequest() {
+        return ExchangeFilterFunction.ofRequestProcessor(req -> {
+            log.info("[http->] {} {}", req.method(), req.url());
+            return Mono.just(req);
+        });
+    }
+
+    private static ExchangeFilterFunction logResponse() {
+        return ExchangeFilterFunction.ofResponseProcessor(resp -> {
+            log.info("[http<-] status={}", resp.statusCode().value());
+            return Mono.just(resp);
+        });
     }
 }
