@@ -1,8 +1,10 @@
 package com.trader.backend.service;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -13,6 +15,7 @@ import java.net.URI;
 // (exact same file you created earlier)
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MarketDataService {
 
     private final UpstoxAuthService auth;
@@ -72,6 +75,14 @@ public class MarketDataService {
                 .uri(URI.create(url))     // <<< use URI to STOP extra encoding
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
+                .onStatus(HttpStatusCode::isError, resp ->
+                        resp.bodyToMono(String.class).defaultIfEmpty("")
+                                .flatMap(body -> {
+                                    log.error("[upstox] {} {} -> HTTP {} body={}",
+                                            resp.request().method(), resp.request().url(), resp.statusCode().value(),
+                                            body.length() > 500 ? body.substring(0,500) + "..." : body);
+                                    return resp.createException();
+                                }))
                 .bodyToMono(String.class);
     }
 
