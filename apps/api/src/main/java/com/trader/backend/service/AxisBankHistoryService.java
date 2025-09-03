@@ -42,12 +42,17 @@ public class AxisBankHistoryService {
     private String influxBucket;
 
     /**
-     * Fetch candles from Upstox and store into Influx.
+     * Fetch 15-minute candles for the last 5 years from Upstox and store them
+     * into Influx. This will aggregate a much longer history than the
+     * previous one-day fetch.
      */
     public Mono<List<Candle>> fetchAndStore() {
-        String today = LocalDate.now().toString();
+        LocalDate today = LocalDate.now();
+        String to = today.toString();
+        // five years back from today
+        String from = today.minusYears(5).toString();
         return marketDataService
-                .candleV3(AXIS_KEY, "minute", 1, today, null)
+                .candleV3(AXIS_KEY, "minute", 15, to, from)
                 .flatMap(json -> Mono.fromCallable(() -> parseAndStore(json)));
     }
 
@@ -84,7 +89,7 @@ public class AxisBankHistoryService {
      */
     public List<Candle> readCandles() {
         QueryApi queryApi = influxDBClient.getQueryApi();
-        String flux = String.format("from(bucket: \"%s\") |> range(start: -30d) |> " +
+        String flux = String.format("from(bucket: \"%s\") |> range(start: -5y) |> " +
                 "filter(fn: (r) => r._measurement == \"axisbank_candles\") |> sort(columns:[\"_time\"])",
                 influxBucket);
         List<Candle> result = new ArrayList<>();

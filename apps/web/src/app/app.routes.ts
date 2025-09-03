@@ -2,10 +2,12 @@ import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 import { DashboardComponent } from './pages/dashboard/dashboard.component';
 import { LoginComponent } from './pages/login/login.component';
+import { AxisBankComponent } from './pages/axisbank/axisbank.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: '/login', pathMatch: 'full' },
   { path: 'dashboard', component: DashboardComponent },
+  { path: 'axisbank', component: AxisBankComponent },
   { path: 'login', component: LoginComponent }
   // (optional) add other routes
 ];
