@@ -37,6 +37,7 @@ import java.time.Duration;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.beans.factory.annotation.Value;
+import static com.trader.backend.config.UpstoxApiEndpoints.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -316,13 +317,13 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
                 .build();
 
         return client.get()
-                .uri("https://api.upstox.com/v3/feed/market-data-feed/authorize")
+                .uri(API_V3_BASE_URL + "/feed/market-data-feed/authorize")
                 .exchangeToMono(resp -> {
                     if (resp.statusCode().is3xxRedirection()) {
                         return Mono.just(resp.headers().asHttpHeaders().getLocation().toString());
                     }
                     return resp.bodyToMono(JsonNode.class)
-                            .map(j -> "wss://api.upstox.com/v3/feed/market-data-feed?authorization="
+                            .map(j -> FEED_WS_V3_BASE_URL + "?authorization="
                                     + j.at("/data/feed_token").asText());
                 })
                 .doOnNext(url -> log.info("▶︎ connecting to WS at {}", url));

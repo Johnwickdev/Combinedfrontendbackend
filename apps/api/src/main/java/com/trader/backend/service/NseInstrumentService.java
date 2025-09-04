@@ -22,6 +22,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.http.HttpHeaders;
 import reactor.core.publisher.Mono;
 import org.springframework.beans.factory.annotation.Value;
+import static com.trader.backend.config.UpstoxApiEndpoints.API_V2_BASE_URL;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -805,7 +806,7 @@ public Mono<Double> getNearestExpiryNiftyFutureLtp() {
     log.info("📌 Selected NIFTY FUT key for LTP: " + instrumentKey);
 
     // 3. Call Upstox LTP API
-    String url = "https://api.upstox.com/v2/market-quote/ltp?instrument_key=" + instrumentKey;
+    String url = API_V2_BASE_URL + "/market-quote/ltp?instrument_key=" + instrumentKey;
 
     return webClient.get()
             .uri(url)

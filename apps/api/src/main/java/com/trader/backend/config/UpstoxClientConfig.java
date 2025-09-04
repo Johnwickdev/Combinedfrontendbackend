@@ -2,9 +2,9 @@ package com.trader.backend.config;
 
 import com.upstox.ApiClient;
 import com.upstox.Configuration;
-import com.upstox.auth.OAuth;
 import org.springframework.context.annotation.Bean;
 
+import static com.trader.backend.config.UpstoxApiEndpoints.API_V2_BASE_URL;
 
 @org.springframework.context.annotation.Configuration
 public class UpstoxClientConfig {
@@ -13,7 +13,7 @@ public class UpstoxClientConfig {
     public ApiClient upstoxApiClient() {
         // Just create once; we’ll inject the token later
         ApiClient client = Configuration.getDefaultApiClient();
-        client.setBasePath("https://api.upstox.com/v2");
+        client.setBasePath(API_V2_BASE_URL);
         return client;
     }
 }

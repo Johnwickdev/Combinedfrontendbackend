@@ -16,6 +16,7 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.ExchangeFilterFunction;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import static com.trader.backend.config.UpstoxApiEndpoints.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -43,7 +44,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class UpstoxAuthService {
 
     private final WebClient webClient = WebClient.builder()
-            .baseUrl("https://api.upstox.com/v2")
+            .baseUrl(API_V2_BASE_URL)
             .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
             .filter(logRequest())
             .filter(logResponse())
@@ -384,7 +385,7 @@ public class UpstoxAuthService {
         }
 
         return UriComponentsBuilder
-                .fromUriString("https://api.upstox.com/v2/login/authorization/dialog")
+                .fromUriString(API_V2_BASE_URL + "/login/authorization/dialog")
                 .queryParam("response_type", "code")
                 .queryParam("client_id", apiKey)
                 .queryParam("redirect_uri", webhookUri)

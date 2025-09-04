@@ -11,6 +11,8 @@ import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClien
 import org.springframework.core.ParameterizedTypeReference;
 import reactor.core.publisher.Mono;
 
+import static com.trader.backend.config.UpstoxApiEndpoints.*;
+
 import java.net.URI;
 import java.time.Duration;
 import java.util.Map;
@@ -31,7 +33,7 @@ public class UpstoxFeedTester {
     public static void main(String[] args) throws InterruptedException {
         ObjectMapper mapper = new ObjectMapper();
         WebClient authClient = WebClient.builder()
-                .baseUrl("https://api.upstox.com/v2")
+                .baseUrl(API_V2_BASE_URL)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE)
                 .build();
 
@@ -61,13 +63,13 @@ public class UpstoxFeedTester {
                 .build();
 
         String wsUrl = feedClient.get()
-                .uri("https://api.upstox.com/v3/feed/market-data-feed/authorize")
+                .uri(API_V3_BASE_URL + "/feed/market-data-feed/authorize")
                 .exchangeToMono(resp -> {
                     if (resp.statusCode().is3xxRedirection()) {
                         return Mono.just(resp.headers().asHttpHeaders().getLocation().toString());
                     }
                     return resp.bodyToMono(JsonNode.class)
-                            .map(j -> "wss://api.upstox.com/v3/feed/market-data-feed?authorization="
+                            .map(j -> FEED_WS_V3_BASE_URL + "?authorization="
                                     + j.at("/data/feed_token").asText());
                 })
                 .block(Duration.ofSeconds(10));

@@ -12,6 +12,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Mono;
 
+import static com.trader.backend.config.UpstoxApiEndpoints.API_V3_BASE_URL;
+
 import java.net.URI;
 
 @Service
@@ -30,7 +32,7 @@ public class MarketDataService {
                                  String to,
                                  @Nullable String from) {
 
-        WebClient wc = buildClient("https://api.upstox.com");
+        WebClient wc = buildClient(API_V3_BASE_URL);
 
         URI uri = buildHistUri(key, unit, interval, to, from);
 
@@ -54,7 +56,7 @@ public class MarketDataService {
                              String to,
                              @Nullable String from) {
         UriComponentsBuilder b = UriComponentsBuilder
-                .fromPath("/v3/historical-candle/{key}")
+                .fromPath("/historical-candle/{key}")
                 .queryParam("to", to);
         if (from != null && !from.isBlank()) {
             b.queryParam("from", from);
