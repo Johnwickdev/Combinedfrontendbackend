@@ -306,9 +306,26 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
      * STEP 6.1: fetch the actual WS URL (handles redirect or JSON token)
      **/
     public Mono<String> fetchWebSocketUrl() {
-        String wsUrl = "wss://api-v2.upstox.com/feed";
-        log.info("▶︎ connecting to WS at {}", wsUrl);
-        return Mono.just(wsUrl);
+        String token = auth.currentToken();
+        if (token == null) {
+            return Mono.error(new IllegalStateException("No Upstox token available"));
+        }
+
+        WebClient client = WebClient.builder()
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .build();
+
+        return client.get()
+                .uri("https://api.upstox.com/v3/feed/market-data-feed/authorize")
+                .exchangeToMono(resp -> {
+                    if (resp.statusCode().is3xxRedirection()) {
+                        return Mono.just(resp.headers().asHttpHeaders().getLocation().toString());
+                    }
+                    return resp.bodyToMono(JsonNode.class)
+                            .map(j -> "wss://api.upstox.com/v3/feed/market-data-feed?authorization="
+                                    + j.at("/data/feed_token").asText());
+                })
+                .doOnNext(url -> log.info("▶︎ connecting to WS at {}", url));
     }
 
     private ReactorNettyWebSocketClient createWsClient() {
@@ -321,10 +338,6 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
 
     private HttpHeaders createWsHeaders() {
         HttpHeaders h = new HttpHeaders();
-        String token = auth.currentToken();
-        if (token != null) {
-            h.set(HttpHeaders.AUTHORIZATION, "Bearer " + token);
-        }
         h.set(HttpHeaders.USER_AGENT, "trader-backend/1.0");
         h.set(HttpHeaders.CONNECTION, "Upgrade");
         h.set(HttpHeaders.UPGRADE, "websocket");
@@ -378,7 +391,7 @@ private final Set<String> currentlySubscribedKeys = ConcurrentHashMap.newKeySet(
     private static final byte[] SUB_FRAME = """
             {"guid":"someguid","method":"sub",
              "data":{"mode":"full",
-                     "instrumentKeys":["NSE_FO|44874"]}}
+                     "instrumentKeys":["NSE_FO|53001"]}}
             """.getBytes(StandardCharsets.UTF_8);
 
     private Flux<JsonNode> openWebSocket(String wsUrl) {

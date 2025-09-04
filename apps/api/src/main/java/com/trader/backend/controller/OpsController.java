@@ -68,6 +68,20 @@ public class OpsController {
         return m;
     }
 
+    /**
+     * Convenience endpoint to expose the Upstox v3 WebSocket URL so it can be
+     * tested from outside the application.
+     */
+    @GetMapping("/ops/ws-url")
+    public Mono<Map<String, String>> websocketUrl() {
+        return liveFeedService.fetchWebSocketUrl()
+                .map(url -> {
+                    Map<String, String> m = new LinkedHashMap<>();
+                    m.put("url", url);
+                    return m;
+                });
+    }
+
     @GetMapping("/ops/influx-sanity")
     public Map<String, Object> influxSanity() {
         InfluxTickService.Sanity s = influxTickService.sanityLast2m();
