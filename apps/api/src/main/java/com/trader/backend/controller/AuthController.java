@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Mono;
 
 import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.util.Map;
 import java.util.LinkedHashMap;
 
@@ -24,6 +25,16 @@ public class AuthController {
 
     @Value("${frontend.dashboard-url}")
     private String frontendDashboardUrl;
+
+    /** Redirect straight to the Upstox OAuth dialog. */
+    @GetMapping("/login")
+    public void login(HttpServletResponse response) throws IOException {
+        String url = auth.buildAuthUrl();
+        if (url == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstox credentials not configured");
+        }
+        response.sendRedirect(url);
+    }
 
     /** Return the OAuth dialog URL for the frontend. */
     @GetMapping("/url")
