@@ -12,8 +12,6 @@ export class LoginComponent {
 
   /** Redirect the user to the Upstox login page */
   login() {
-    this.auth.getLoginUrl().subscribe({
-      next: url => (window.location.href = url)
-    });
+    this.auth.redirectToLogin();
   }
 }

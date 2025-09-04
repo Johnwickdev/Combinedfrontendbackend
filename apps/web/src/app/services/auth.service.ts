@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { map, Observable } from 'rxjs';
+import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 export interface AuthStatus {
@@ -14,11 +14,9 @@ export class AuthService {
   private http = inject(HttpClient);
   private apiBase = environment.apiBase;
 
-  /** Ask the backend for the login URL */
-  getLoginUrl(): Observable<string> {
-    return this.http
-      .get<{ url: string }>(`${this.apiBase}/auth/url`)
-      .pipe(map(r => r.url));
+  /** Redirect the browser to the backend login endpoint. */
+  redirectToLogin() {
+    window.location.href = `${this.apiBase}/auth/login`;
   }
 
   /** Fetch the current auth status */

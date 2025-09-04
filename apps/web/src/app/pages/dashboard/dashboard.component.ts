@@ -87,7 +87,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   login() {
-    this.auth.getLoginUrl().subscribe({ next: url => (window.location.href = url) });
+    this.auth.redirectToLogin();
   }
 
   refresh() {
