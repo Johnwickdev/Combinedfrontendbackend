@@ -391,7 +391,9 @@ public class UpstoxAuthService {
                 .queryParam("redirect_uri", webhookUri)
                 .queryParam("state", "botInit")
                 .queryParam("scope", "profile marketdata")
-                .build().toUriString();
+                .build()
+                .encode()
+                .toUriString();
     }
 
     private static ExchangeFilterFunction logRequest() {
