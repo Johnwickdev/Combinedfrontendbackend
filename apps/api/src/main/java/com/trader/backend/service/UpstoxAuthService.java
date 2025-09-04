@@ -52,13 +52,13 @@ public class UpstoxAuthService {
     private final ApiClient apiClient;
     private final LiveFeedService liveFeed;
 
-    @Value("${UPSTOX_API_KEY:}")
+    @Value("${upstox.apiKey}")
     private String apiKey;
 
-    @Value("${UPSTOX_API_SECRET:}")
+    @Value("${upstox.apiSecret}")
     private String apiSecret;
 
-    @Value("${UPSTOX_WEBHOOK_URI:}")
+    @Value("${upstox.webhookUri}")
     private String webhookUri;
 
     private final AtomicReference<String> accessToken = new AtomicReference<>();
