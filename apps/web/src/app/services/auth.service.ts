@@ -25,4 +25,11 @@ export class AuthService {
   getStatus(): Observable<AuthStatus> {
     return this.http.get<AuthStatus>(`${this.apiBase}/auth/status`);
   }
+
+  /** Send the Upstox auth code to the backend for exchange */
+  exchangeCode(code: string) {
+    return this.http.get<void>(`${this.apiBase}/auth/exchange`, {
+      params: { code }
+    });
+  }
 }

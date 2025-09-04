@@ -107,7 +107,11 @@ public class MdController {
             Flux<ServerSentEvent<Map<String, Object>>> heartbeat = Flux.interval(Duration.ofSeconds(15))
                     .map(i -> ServerSentEvent.<Map<String, Object>>builder().comment("hb").build());
             if (open) {
-                Flux<LtpEvent> flux = liveFeedService.ltpEvents();
+                Flux<LtpEvent> flux = liveFeedService.ltpEvents()
+                        .onErrorResume(e -> {
+                            log.error("ltp stream failure", e);
+                            return Flux.empty();
+                        });
                 if (keys != null && !keys.isEmpty()) {
                     Set<String> set = new HashSet<>(keys);
                     flux = flux.filter(ev -> set.contains(ev.instrumentKey()));
