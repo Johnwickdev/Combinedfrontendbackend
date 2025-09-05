@@ -82,7 +82,7 @@ public class UpstoxAuthService {
      * waiting for a login.  This method never fails.
      */
     public void init() {
-        log.info("No Upstox token yet — waiting for OAuth login (GET /auth/url)");
+        log.info("No Upstox token yet — waiting for OAuth login (GET /auth/login or /auth/url)");
         authEvents.tryEmitNext(AuthEvent.WAITING);
         state.set(State.WAIT_AUTH);
     }
