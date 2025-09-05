@@ -36,16 +36,10 @@ public class AuthController {
         response.sendRedirect(url);
     }
 
-    /** Return the OAuth dialog URL for the frontend. */
+    /** Convenience endpoint that also redirects to the OAuth dialog. */
     @GetMapping("/url")
-    public Map<String, String> loginUrl() {
-        String url = auth.buildAuthUrl();
-        if (url == null) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Upstox credentials not configured");
-        }
-        Map<String, String> body = new LinkedHashMap<>();
-        body.put("url", url);
-        return body;
+    public void loginUrl(HttpServletResponse response) throws IOException {
+        login(response);
     }
 
     @GetMapping("/redirect-url")
